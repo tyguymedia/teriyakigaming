@@ -1,0 +1,202 @@
+---
+title: "Runtime documents"
+description: "Building and editing Ink Page Documents at runtime from Blueprint — Add Page, Set Page Markup, Refresh, and the content revision that keeps bakes fresh"
+icon: "file-pen"
+---
+
+Ink Page Documents are usually static authored content, but nothing stops you from
+writing them in play: append entries to a journal as the player progresses, fill a
+findable note with generated text, or build a whole document from scratch. The document
+asset exposes a Blueprint mutation API for exactly this.
+
+## How runtime editing works
+
+Two facts drive everything on this page:
+
+1. **The Pages array is deliberately read-only in Blueprint.** Every mutation must
+   invalidate the bake cache, which a directly writable array could not guarantee — so
+   all edits go through the functions below, each of which invalidates cached bakes for
+   you.
+2. **Displays don't watch the document.** After editing, call **Refresh** on each
+   component or widget currently showing the document so it re-bakes and re-applies the
+   current page.
+
+Under the hood, invalidation works through the document's **content revision**
+(`ContentRevision`) — a transient counter bumped on every content change (each mutation
+function calls **Bump Revision** internally, and the editor bumps it on every
+editor-side change). The per-world page cache keys each baked ink texture on
+*document path + page index + content revision*, so after a bump every stale render
+target simply stops matching and the next request bakes fresh. The revision is never
+saved to disk.
+
+## The mutation API
+
+All functions live on the **Ink Page Document** asset itself (category
+*Inkwell | Page Document*):
+
+| Function | Signature | What it does |
+|---|---|---|
+| Add Page (`AddPage`) | `(Ink Page Spec) → int` | Appends a page and returns its index. Invalidates cached bakes of this document. |
+| Remove Page (`RemovePage`) | `(int) → bool` | Removes a page. Returns false if the index was out of range. Invalidates cached bakes. |
+| Set Page (`SetPage`) | `(int, Ink Page Spec) → bool` | Replaces one page wholesale. Returns false if the index was out of range. |
+| Set Page Markup (`SetPageMarkup`) | `(int, String) → bool` | Replaces just one page's rich-text markup. Returns false if the index was out of range. |
+| Get Page (`GetPage`) | `(int) → Ink Page Spec` | Copy of one page's data (a default-constructed page if the index is out of range). |
+| Get Page Count (`GetPageCount`) | `() → int` | Number of pages in the document. |
+| Bump Revision (`BumpRevision`) | `()` | Invalidates every cached bake of this document. The functions above call it for you — call it yourself only after changing pages through some other route (e.g. direct C++ writes). |
+
+<Note>
+Document-level look and layout properties (paper texture, tints, ink strength, default
+font, page size, margins) are **BlueprintReadOnly** — they can be read but not written
+from Blueprint at runtime. Per page, though, you get full control through the page spec:
+markup, images, a paper override, and justification.
+</Note>
+
+## The page spec
+
+A page is an **Ink Page Spec** struct (`FInkPageSpec`) — build one with a *Make Ink Page
+Spec* node:
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| Markup (`Markup`) | String | `""` | The page's rich-text markup (UE rich text format; styled runs carry font/size/color/typeface attributes). Plain text works — see [Writing markup at runtime](#writing-markup-at-runtime). |
+| Images (`Images`) | Array of Ink Page Image | empty | Images placed freely on the page. |
+| Paper Override (`PaperOverride`) | Texture 2D | None | Overrides the document's paper texture for this page only (None = use the document's). |
+| Justification (`Justification`) | Text Justify | Left | Per-page text justification. |
+
+Each entry in Images is an **Ink Page Image** (`FInkPageImage`). Positions and sizes are
+normalized 0–1 page coordinates:
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| Texture (`Texture`) | Texture 2D | None | The image to draw. |
+| Position (`Position`) | Vector 2D | (0.1, 0.1) | Top-left corner of the image box, normalized (0,0 = page top-left; 1,1 = bottom-right). |
+| Size (`Size`) | Vector 2D | (0.3, 0.0) | Normalized width/height of the image box. Height ≤ 0 keeps the texture's aspect ratio. |
+| Rotation Degrees (`RotationDegrees`) | Float | 0.0° | Rotation of the image. |
+| Opacity (`Opacity`) | Float | 1.0 | 0–1 opacity. |
+| Behind Text (`bBehindText`) | Bool | false | Draw behind the text instead of over it (letterheads, watermarks, ruled lines). |
+
+## Recipe: edit a page in place
+
+Appending to a journal the player already carries:
+
+<Steps>
+  <Step title="Mutate the document">
+    Call **Set Page Markup** with the page index and the new text — or **Add Page** with
+    a fresh page spec to grow the document, or **Set Page** to replace a page including
+    its images and justification. The cache invalidation happens automatically.
+  </Step>
+  <Step title="Refresh what's showing it">
+    Call **Refresh** on every component or widget currently displaying the document.
+    Anything *not* currently showing it needs nothing — its next bake picks up the new
+    revision by itself.
+  </Step>
+</Steps>
+
+Every displaying class has a Refresh entry point:
+
+| Showing the document on | Call |
+|---|---|
+| [Ink Page Display](/plugins/inkwell/components/page-display) | **Refresh** — re-bakes and re-applies the current page |
+| [Ink Page Stack](/plugins/inkwell/components/page-stack) | **Refresh** (inherited and overridden — the pile re-deals and re-bakes its sheets) |
+| [Ink Page](/plugins/inkwell/components/page-actor) actor | **Refresh** — forwards to its display component |
+| [Ink Page](/plugins/inkwell/components/page-widget) widget (UMG) | **Refresh** — rebuilds the page |
+
+## Recipe: build a document from scratch
+
+Because **Ink Page Document** is a BlueprintType object, you can create one entirely at
+runtime:
+
+<Steps>
+  <Step title="Construct the document">
+    Use **Construct Object from Class** with class *Ink Page Document*.
+  </Step>
+  <Step title="Add pages">
+    A new document is not empty — it starts with **one blank page**. Fill page 0 with
+    **Set Page** or **Set Page Markup**, then make an **Ink Page Spec** and call
+    **Add Page** for each further page — it returns the new page's index.
+  </Step>
+  <Step title="Assign it">
+    Call **Set Document** on an Ink Page Display / Stack, an Ink Page actor, or an Ink
+    Page widget. Set Document shows the given page immediately — no Refresh needed for
+    the initial assignment.
+  </Step>
+</Steps>
+
+A freshly constructed document uses sensible defaults: 1024 × 1400 px bake size, 90 px
+margins on all sides, 1.18 line height, font size 28, and near-black warm ink
+(`(0.02, 0.017, 0.025)` — slightly warm near-black reads as ink better than pure black).
+With no **Default Font** set, unstyled text falls back to the project-wide Inkwell
+default font (**Project Settings → Plugins → Inkwell**), and as a last resort the
+engine's own Roboto — text is never invisible in a project that has configured nothing.
+
+## Writing markup at runtime
+
+The `Markup` string is UE rich-text format. Two levels of ambition:
+
+**Plain text (recommended for generated content).** A markup string with no tags renders
+entirely in the document's default text style (default font, typeface, size, and color).
+For journal entries, generated notes, and localized strings this is usually all you need
+— pass your text straight to **Set Page Markup**. Newlines make new lines.
+
+**Styled runs.** The Page Editor stores styled text as `<TextStyle …>` runs:
+
+```xml
+<TextStyle Font="/Inkwell/Fonts/..." Face="Bold" Size="28" Color="(R=0.02,G=0.017,B=0.025,A=1.0)" U="1" S="1">text</>
+```
+
+where `Font` is a font asset object path, `Face` the typeface entry inside the composite
+font ("Regular", "Bold", "Italic", …), `Size` the point size, `Color` a linear color
+tuple, and `U` / `S` flag underline and strikethrough. Any attribute a run omits falls
+back to the document's defaults.
+
+<Warning>
+The rich-text markup writer does **not** escape attribute values — in editor-authored
+documents every value is machine-generated (paths, numbers, color tuples). If you
+assemble styled markup at runtime, never splice user-entered strings into tag
+attributes. For anything beyond plain text, the safest workflow is to author a template
+page in the [Page Editor](/plugins/inkwell/authoring/page-editor) and copy its markup as your starting
+point.
+</Warning>
+
+<Warning>
+**Fonts and cooking.** Markup stores fonts as string paths, which the cooker cannot see.
+For editor-authored documents the Page Editor maintains the document's `FontReferences`
+hard-reference list on save, so the fonts get cooked. If you generate styled markup at
+runtime (or edit documents outside the Page Editor), make sure every font you reference
+is otherwise referenced or in a cooked directory — or stick to plain text, which uses the
+document's (hard-referenced) default font.
+</Warning>
+
+## Editor worlds vs. game worlds
+
+The mutation API behaves differently by design depending on where it runs:
+
+- **In game worlds (PIE and packaged games)**, mutations never dirty the source asset.
+  Data assets are not duplicated for PIE, so play-time writes land on the loaded asset in
+  memory — but the editor will not offer to save them into the `.uasset`, and they are
+  never persisted. If a saved authored asset must stay pristine across a play session in
+  the same editor boot, build a runtime copy instead of mutating the original.
+- **In editor worlds** (editor-utility scripts and tools), mutations mark the asset's
+  package dirty so your tooling's changes can actually be saved.
+
+<Note>
+Runtime document changes are not save-game data either — the revision counter is
+transient and the pages you write live only in memory. If generated pages must survive a
+reload, store the source data (e.g. the markup strings) in your own save game and rebuild
+the document on load.
+</Note>
+
+## Performance and cache management
+
+- Each *distinct* page shown costs one bake, cached per world. At the default
+  1024 × 1400 RGBA that's roughly 5.7 MB of VRAM per distinct page;
+  `MaxPageBakeDimension` in [Settings](/plugins/inkwell/reference/settings) caps the bake size globally.
+  Every page you add and show at runtime is another bake.
+- After a revision bump, the old render targets are stale but still held by the per-world
+  cache. To reclaim their memory immediately, call **Clear Page Cache** (Ink Page Render
+  Library) for the document — or the cache subsystem's **Clear Cache** with no document
+  to drop everything.
+- Bakes happen on the game thread. If you build a long document and expect the player to
+  read it soon, pre-warm it by calling **Get Page Ink Texture** for the pages you expect
+  (during a load screen, for instance). See [Rendering](/plugins/inkwell/reference/rendering) for the
+  full bake pipeline.

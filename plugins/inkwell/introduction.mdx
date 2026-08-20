@@ -1,0 +1,106 @@
+---
+title: "Introduction"
+description: "Authored rich-text page content for readables: notes, letters, page stacks, and books"
+icon: "feather"
+---
+
+Inkwell brings readable paper to Unreal Engine: notes, letters, logs, journals, and books
+that you write in a WYSIWYG page editor, render as real paper in the world, and read with
+any interaction system. Everything is an actor component with Blueprint-exposed
+properties, functions, and events — no C++ required, and the plugin has zero project
+dependencies (it depends only on engine modules).
+
+## How it works
+
+You author pages in the **Inkwell Page Editor** — fonts, sizes, colors,
+bold/italic/underline/strikethrough, freely placed images, per-page justification, and
+paper textures. At runtime, Inkwell bakes each page's text and images into an **ink
+layer**: a transparent render target containing only the content, never the paper. The
+page material then *multiplies* that ink over your paper texture, so paper grain survives
+inside every stroke and white ink cannot brighten the sheet — the result reads as ink and
+print rather than a decal.
+
+That separation is what lets a single document be printed onto different papers, tinted
+per-document, and faded per-document (for aged pencil or old print) without re-baking
+anything but the ink. The full pipeline is described in
+[How rendering works](/plugins/inkwell/reference/rendering).
+
+## The pieces
+
+| Component / asset | What it does |
+|---|---|
+| [**Ink Page Document**](/plugins/inkwell/authoring/documents) (asset) | The content: pages of styled text, images, and paper settings. Create it via Content Browser → Inkwell, edit it in the Page Editor. |
+| [**Ink Page Display**](/plugins/inkwell/components/page-display) (component) | Puts a document on a mesh. Add it to *any* actor, assign a Document, and the actor's mesh shows the current page. `Next Page` / `Previous Page` / `Set Page Index` / `On Page Changed`. |
+| [**Ink Page Stack**](/plugins/inkwell/components/page-stack) (component) | A drop-in replacement for Ink Page Display that renders the document as a *physical pile of sheets* — one sheet per page, current page on top, fanned naturally. Turning a page slides the sheets around the pile. |
+| [**Ink Page Reader**](/plugins/inkwell/components/reader) (component) | Goes on your pawn or controller. `Begin Reading` floats a page up in front of the camera; `End Reading` floats it back to exactly where it lay. Optionally locks movement and freezes the camera while reading — each lock has its own toggle. |
+| [**Ink Page Interactor**](/plugins/inkwell/components/interactor) (component) | The reference "look at a page, press a key, read it" implementation: line-traces from the view, fires `On Focus Changed` for your prompt UI, and drives the reader. |
+| [**Ink Page**](/plugins/inkwell/components/page-actor) (actor) | A ready-made placeable sheet of paper, sized in real-world centimetres (A4 by default): drag it into the level, pick a document, done. |
+| [**Ink Page Widget**](/plugins/inkwell/components/page-widget) (UMG) | Shows a document page inside your UI instead of (or as well as) in the world. |
+
+## Works with your interaction system — or without one
+
+Inkwell splits interaction into layers so you only take what you need:
+
+<CardGroup cols={3}>
+  <Card title="No interaction system yet" icon="wand-magic-sparkles">
+    Add **Ink Page Interactor** to your pawn. It can even bind demo keys out of the box
+    (`Enable Default Input`), so pages are readable in minutes.
+  </Card>
+  <Card title="You have an interactor" icon="crosshairs">
+    Keep it. When your trace finds an actor, look for its **Ink Page Display** component
+    (a Stack *is a* Display) and call `Begin Reading` on your **Ink Page Reader**.
+  </Card>
+  <Card title="Rendering only" icon="scroll">
+    Use **Ink Page Display** / **Ink Page Stack** alone and call `Set Page Index` from
+    anything — a trigger, a cutscene, a widget button.
+  </Card>
+</CardGroup>
+
+See [Integrating with your own systems](/plugins/inkwell/guides/integration) for the full walkthrough.
+
+Everything updates live in the editor viewport as you edit properties — assign a
+different document to a stack and the pile re-deals itself; drag the fan angle and watch
+the sheets splay. Documents can also be built or edited at runtime (`Add Page`,
+`Set Page Markup`, …) followed by `Refresh` on the component — see
+[Runtime documents](/plugins/inkwell/guides/runtime-documents).
+
+## What's in the box
+
+The plugin ships its own content under `/Inkwell/` (enable **Show Plugin Content** in the
+Content Browser to see it under Plugins → Inkwell Content):
+
+- **`/Inkwell/Examples/`** — a ready-to-drop example journal stack
+  (`BP_InkwellJournalStack`), a multi-page sample document (`DA_InkwellJournal`), a
+  "Press E to read" prompt widget (`WBP_InkwellReadPrompt`), and Enhanced Input actions
+  (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack`). Tour them in
+  [Example content](/plugins/inkwell/guides/examples).
+- **`/Inkwell/Fonts/`** — five open-licensed font families, imported as composite fonts:
+  Courier Prime, Crimson Text, Great Vibes, Kalam, and Patrick Hand. You can
+  [import your own](/plugins/inkwell/authoring/fonts) from any folder of `.ttf`/`.otf` files.
+- **`/Inkwell/Materials/`** — the page ink material (`M_PageInk` / `MI_PageInk`) and the
+  unlit editor preview material (`M_PageComposite_Preview`).
+- **`/Inkwell/Meshes/SM_PageSheet`** — a clean 100 cm page plane with 0–1 UVs.
+- **`/Inkwell/Textures/`** — a plain paper texture (`T_PaperPlain`) and the transparent
+  "no ink yet" texture (`T_InkNone`).
+- **`/Inkwell/Demo/DA_InkwellSample`** — an additional sample document.
+
+Every asset the plugin loads resolves through **Project Settings → Plugins → Inkwell**,
+so you can repoint any of them — your own page material, sheet mesh, paper texture, or
+default font — without touching code. See the [settings reference](/plugins/inkwell/reference/settings).
+
+## Where next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/plugins/inkwell/quickstart">
+    From installing the plugin to reading a page in PIE.
+  </Card>
+  <Card title="Installation" icon="download" href="/plugins/inkwell/installation">
+    Fab install, enabling, modules, settings, and packaging notes.
+  </Card>
+  <Card title="The Page Editor" icon="pen-nib" href="/plugins/inkwell/authoring/page-editor">
+    Write and style pages WYSIWYG.
+  </Card>
+  <Card title="Integration guide" icon="puzzle-piece" href="/plugins/inkwell/guides/integration">
+    Wire Inkwell into your own interaction, input, and UI.
+  </Card>
+</CardGroup>

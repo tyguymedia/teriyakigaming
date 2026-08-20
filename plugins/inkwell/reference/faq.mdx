@@ -1,0 +1,184 @@
+---
+title: "Troubleshooting & FAQ"
+description: "Blank pages, traces that miss, locks that hold, and other things worth knowing before you file a bug"
+icon: "circle-question"
+---
+
+## Rendering
+
+### Page blank at startup
+
+**Symptom:** a page actor in an open level shows blank paper (or the checkerboard
+material) right after the editor starts, and fixes itself a little later — or after you
+touch the component.
+
+During editor startup, a page component can register before the editor's Slate renderer
+is usable, so the very first preview bake fails. And because dynamic material instances
+are never saved into the level, there is no baked material waiting on disk — the sheet
+would stay unbaked until something refreshed it.
+
+Inkwell handles this itself: failed preview bakes are retried automatically with
+exponential backoff (0.25 s up to 32 s, 8 attempts, roughly 60 s in total). In the normal
+case the page simply pops in a moment after startup, with no action needed.
+
+If the bake *keeps* failing past the retry window, you'll get a `LogInkwell` warning:
+
+```
+InkPageDisplay on '...': editor preview bake kept failing after startup;
+the sheet will refresh next time it is edited or the map is reopened.
+```
+
+At that point, editing any property on the component (or reopening the map) triggers a
+fresh preview. Persistent failures usually mean rendering is genuinely unavailable — for
+example running with the null RHI — or the page ink material is missing (see the next
+entry).
+
+### Every page renders wrong, and the log mentions a settings entry
+
+If the **page ink material** (or another configured asset) is unset or cannot be loaded,
+Inkwell logs one warning per session naming the exact setting:
+
+```
+Inkwell: page ink material could not be loaded from '...'. Fix 'Project Settings >
+Plugins > Inkwell > Page Ink Material' (the plugin's content may not be installed
+in this project).
+```
+
+Check **Project Settings → Plugins → Inkwell** and confirm the referenced asset exists.
+The defaults point into `/Inkwell/...`, so this warning most often means the plugin's
+Content folder is missing from the install. When the material cannot be resolved,
+displays fall back to the mesh's existing material so the failure is visible — the ink
+parameters just do nothing on it. See [Project Settings](/plugins/inkwell/reference/settings).
+
+### Page content is garbled on my own mesh
+
+Page meshes must have **clean 0–1 UVs across the page face** — the baked ink is sampled
+across the full 0–1 UV range. Most atlas-mapped prop meshes garble page content in a way
+that looks like a bake failure but is not. The bundled `SM_PageSheet` (a 100 cm plane) is
+mapped correctly; use it, or unwrap your own mesh so the page face spans 0–1.
+
+### Colours look washed out in a custom page material
+
+The ink layer is baked in **linear space** (the render target is created with SRGB off
+and gamma 1.0, and the widget renderer runs without gamma correction). Sample the ink
+texture with a **LinearColor** sampler in your material — a default sRGB sampler washes
+every colour out by exactly one gamma curve. See
+[Rendering Pipeline](/plugins/inkwell/reference/rendering#the-ink-render-target).
+
+### I changed a document at runtime and the page didn't update
+
+Mutate documents through their Blueprint API — **Add Page**, **Remove Page**, **Set
+Page**, **Set Page Markup** — which invalidates the world's bake cache for you (the cache
+keys on the document's content revision). Then call **Refresh** on the displaying
+component so it re-applies. If you changed something the mutation API doesn't cover, call
+**Bump Revision** on the document first. See
+[Runtime Documents](/plugins/inkwell/guides/runtime-documents).
+
+## Interaction
+
+### My page isn't readable — the trace never finds it
+
+The bundled [Ink Page Interactor](/plugins/inkwell/components/interactor) line-traces from the player's
+view for an actor carrying an [Ink Page Display](/plugins/inkwell/components/page-display) component
+(an [Ink Page Stack](/plugins/inkwell/components/page-stack) counts — Stack *is a* Display). Work down
+this list:
+
+1. **Distance.** The focus trace reaches **Interaction Distance** — 300 cm by default.
+   Get closer, or raise it.
+2. **Channels must match.** The interactor traces on its **Trace Channel** (default
+   **Visibility**). Whatever it hits must block that channel:
+   - Stack sheets block exactly one channel, the stack's **Sheet Trace Channel**
+     (default **Visibility** — matching the interactor out of the box). If you changed
+     one, change the other.
+   - The stack's **Sheets Block Traces** must be on (default on); off means the sheets
+     have no collision at all and every trace passes through the pile.
+   - For a display on your own mesh, that mesh's collision must block the trace channel —
+     Inkwell does not touch collision on meshes it doesn't own.
+3. **Something in the way?** The trace hits the *first* blocking thing on the channel. An
+   invisible blocking volume, or glass that blocks Visibility, will eat the trace.
+4. **Turn on Draw Debug Trace** on the interactor: each focus trace draws in the world —
+   green when it hits a readable page, red otherwise, with a small ring at the impact
+   point. (Debug drawing has no effect in Shipping or Test builds.)
+
+If focus works but nothing happens on your key press, remember the interactor's demo keys
+(E interacts, Q closes, arrows / mouse wheel flip pages) only bind while **Enable Default
+Input** is on. The shipped demo turns that off and binds Enhanced Input actions in
+Blueprint instead — if you copied that pattern, check your bindings call **Interact** /
+**Stop Reading** / **Next Page** / **Previous Page** on the component.
+
+### What collision do stack sheets have? Will they bump my player?
+
+No. Sheets are focus targets, not obstacles:
+
+- Query-only collision, object type WorldDynamic — never physical blocking.
+- They **ignore every channel** and **block exactly one**: the stack's **Sheet Trace
+  Channel** (default Visibility). Pawn movement sweeps, physics impulses and camera
+  probes all pass straight through the pile.
+- No overlap events are generated, and sheets **never affect navmesh**.
+- Turning **Sheets Block Traces** off removes collision entirely (No Collision).
+
+So a journal on a desk cannot shove the player, trip the camera boom, or carve a hole in
+navigation — it can only answer the interaction trace.
+
+### The player can't move or look around while reading — is that a bug?
+
+That's the [Ink Page Reader](/plugins/inkwell/components/reader)'s input locks, and both default **on**:
+
+| Property | Default | What it does |
+|---|---|---|
+| **Lock Movement While Reading** (`bLockMovementWhileReading`) | `true` | Move input is ignored and characters cannot jump while a page is held up. |
+| **Lock Look While Reading** (`bLockLookWhileReading`) | `true` | Look input is ignored — the camera cannot rotate while a page is held up. |
+
+They are independent toggles: turn either off on the reader component if your game wants
+the player walking or looking around mid-read. Both release **the moment End Reading is
+called** — not when the page finishes floating back down — so control returns instantly
+on close.
+
+## Content & the demo project
+
+### I can't find the Inkwell content (examples, fonts, materials)
+
+Plugin content is hidden by default. In the Content Browser, open **Settings** (or the
+view options) and enable **Show Plugin Content**. Inkwell's content then appears under
+**Plugins → Inkwell Content**:
+
+- `/Inkwell/Examples/` — the example content: `Blueprints/BP_InkwellJournalStack` (a
+  static-mesh actor with an Ink Page Stack wired to the sample journal),
+  `DA_InkwellJournal` (a multi-page example document), `UI/WBP_InkwellReadPrompt` (a
+  "Press E to read" prompt widget listening to the focus/reading events), and
+  `Input/IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack` (Enhanced Input
+  actions the demo binds).
+- `/Inkwell/Demo/DA_InkwellSample` — a sample document.
+- `/Inkwell/Fonts/` — the five bundled font families.
+- `/Inkwell/Materials/` — `M_PageInk`, `MI_PageInk`, `M_PageComposite_Preview`.
+- `/Inkwell/Meshes/SM_PageSheet` — the 100 cm page sheet plane.
+- `/Inkwell/Textures/` — `T_PaperPlain`, `T_InkNone`.
+
+See [Examples](/plugins/inkwell/guides/examples) for a tour.
+
+### The demo project won't open, or every asset fails to load
+
+The demo project (`github.com/tyguymedia/Inkwell`) stores its binary assets in **Git
+LFS** — `.uasset`, `.umap`, `.ubulk`, `.uexp`, plus source `.ttf`/`.otf` fonts and
+`.png`/`.jpg`/`.tga` textures. If you clone without Git LFS installed, you get tiny text
+pointer files instead of real assets, and the editor fails to load essentially
+everything. Install Git LFS, then run `git lfs pull` in the clone (a fresh clone with LFS
+installed fetches them automatically).
+
+Two more pitfalls:
+
+- **It's a C++ project.** Open it and let it compile, or use pre-built binaries. If the
+  editor offers to rebuild modules, say yes.
+- **The repository is not the product.** Fab ships only the `Plugins/Inkwell` folder; the
+  surrounding project is a stock First Person map used to develop and verify the plugin.
+  To use Inkwell in your own game, copy `Plugins/Inkwell` into your project's `Plugins/`
+  folder — see [Installation](/plugins/inkwell/installation).
+
+### How does the demo character read pages?
+
+The demo keeps the stock FirstPerson map, and its character binds the example Enhanced
+Input actions (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack`) to the
+[Ink Page Interactor](/plugins/inkwell/components/interactor) in Blueprint — with the interactor's
+**Enable Default Input** demo key bindings turned **off**. That's the recommended pattern
+to copy when wiring Inkwell into your own input setup; see
+[Integration](/plugins/inkwell/guides/integration).

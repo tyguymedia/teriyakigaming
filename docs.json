@@ -9,26 +9,72 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Getting started",
-        "pages": [
-          "index",
-          "buying-and-licensing"
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index",
+              "buying-and-licensing"
+            ]
+          },
+          {
+            "group": "Asset packs",
+            "pages": [
+              "asset-packs/overview"
+            ]
+          }
         ]
       },
       {
-        "group": "Inkwell",
-        "pages": [
-          "plugins/inkwell/overview",
-          "plugins/inkwell/installation",
-          "plugins/inkwell/quickstart"
-        ]
-      },
-      {
-        "group": "Asset packs",
-        "pages": [
-          "asset-packs/overview"
+        "tab": "Inkwell",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "plugins/inkwell/introduction",
+              "plugins/inkwell/quickstart",
+              "plugins/inkwell/installation"
+            ]
+          },
+          {
+            "group": "Authoring",
+            "pages": [
+              "plugins/inkwell/authoring/documents",
+              "plugins/inkwell/authoring/page-editor",
+              "plugins/inkwell/authoring/fonts"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "plugins/inkwell/components/page-display",
+              "plugins/inkwell/components/page-stack",
+              "plugins/inkwell/components/page-actor",
+              "plugins/inkwell/components/page-widget",
+              "plugins/inkwell/components/reader",
+              "plugins/inkwell/components/interactor"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "plugins/inkwell/guides/integration",
+              "plugins/inkwell/guides/examples",
+              "plugins/inkwell/guides/runtime-documents"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "plugins/inkwell/reference/settings",
+              "plugins/inkwell/reference/rendering",
+              "plugins/inkwell/reference/blueprint-api",
+              "plugins/inkwell/reference/faq"
+            ]
+          }
         ]
       }
     ]

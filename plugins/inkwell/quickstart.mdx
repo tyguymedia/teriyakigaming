@@ -1,24 +1,148 @@
 ---
-title: "Inkwell quickstart"
-sidebarTitle: "Quickstart"
-description: "From a fresh Inkwell install to a first working result"
+title: "Quickstart"
+description: "From installing the plugin to reading a page in PIE, in about ten minutes"
+icon: "rocket"
 ---
 
-<Info>
-  Inkwell is in development — this quickstart is a scaffold and will be written against the first release build.
-</Info>
+This walkthrough takes you from a fresh project to picking a page up off a table and
+reading it in Play In Editor. No C++ and no Blueprint graph is required for the basic
+flow — the only Blueprint step is adding one component to your pawn.
 
-This page will take you from a fresh [install](/plugins/inkwell/installation) to a first visible result in your scene.
+<Steps>
+  <Step title="Install and enable the plugin">
+    Install Inkwell from Fab and enable it for your project (**Edit → Plugins**, search
+    for *Inkwell*, category *Content*). The [installation page](/plugins/inkwell/installation) covers
+    this in detail, including installing it as a project plugin instead.
 
-{/* TODO(user): write the real quickstart once the core workflow exists. Keep it to one quick win: shortest path from enabled plugin to seeing ink on screen. */}
+    You'll know it's active when a **Page Editor** button appears in the Level Editor
+    toolbar and an **Inkwell** entry appears in the **Tools** menu.
+  </Step>
 
-## Planned outline
+  <Step title="Create an Ink Page Document">
+    In the Content Browser, right-click in a folder of your project and choose
+    **Inkwell → Page Document**.
 
-1. Open or create a project with Inkwell enabled.
-2. Placeholder — apply the toolkit to a sample mesh or scene.
-3. Placeholder — tweak the one or two parameters that matter most.
-4. Where to go next: reference docs per system.
+    The new asset is seeded from your project settings so it renders something
+    immediately: a 1024 × 1400 px page, the bundled plain-paper texture, and the
+    project's default font. It opens straight into the **Inkwell Page Editor**.
 
-## Stuck?
+    <AccordionGroup>
+      <Accordion title="Other ways to create or open a document">
+        - **Toolbar:** the **Page Editor** dropdown lists every Page Document in the
+          project and has a **Create New Page Document...** entry.
+        - **Tools menu:** **Tools → Inkwell** shows the same menu, for projects with a
+          customized toolbar.
+        - **Content Browser:** double-click any Page Document, or right-click it and
+          choose **Edit Pages...**.
+        - **Level editor:** right-click a placed actor that references a Page Document
+          and use the **Inkwell → Edit Pages** entry.
+        - **Console:** `Inkwell.OpenPageEditor <PageDocumentObjectPath>`.
+      </Accordion>
+    </AccordionGroup>
+  </Step>
 
-Email [tyguymedia@gmail.com](mailto:tyguymedia@gmail.com) — include your engine version and what you tried.
+  <Step title="Author a page">
+    The centre pane *is* the page: paper texture under an editable text box. Type your
+    note, select some text, and use the toolbar to change font, size, and color or to
+    apply **Bold**, **Italic**, **Underline**, and **Strikethrough** in place. The right
+    pane shows the true ink-composite preview — rendered through the exact same bake
+    path the game uses, so what you see is what ships.
+
+    You can add and reorder pages, drop in freely draggable images (in front of or
+    behind the text), and set per-page justification. When it looks right, **Save**.
+
+    See [the Page Editor](/plugins/inkwell/authoring/page-editor) for the full tour, and
+    [Fonts](/plugins/inkwell/authoring/fonts) for the five bundled families and importing your own.
+  </Step>
+
+  <Step title="Place a page in the level">
+    Two easy options:
+
+    <Tabs>
+      <Tab title="Ink Page actor">
+        Place an **Ink Page** actor in the level (it's the ready-made single-sheet
+        actor, `AInkPageActor`). Select it and set the **Document** property on its
+        **Ink Page Display** component to your new asset. The page content appears on
+        the sheet immediately — the display component previews live in the editor
+        viewport, no Play needed.
+
+        The sheet is sized in real-world centimetres and defaults to A4
+        (21.0 × 29.7 cm); change **Page Size Cm** for Letter (21.6 × 27.9) or anything
+        else and the content re-fits automatically.
+      </Tab>
+      <Tab title="Example journal stack">
+        Enable **Show Plugin Content** in the Content Browser settings, then browse to
+        **Plugins → Inkwell Content → Examples → Blueprints** and drag
+        `BP_InkwellJournalStack` into the level. It's a static-mesh prop with an
+        **Ink Page Stack** component already wired to the multi-page sample journal
+        (`DA_InkwellJournal`) — a physical pile of sheets, one per page. Swap its
+        document for yours if you like; the pile re-deals itself in the viewport.
+
+        More on the shipped examples in [Example content](/plugins/inkwell/guides/examples).
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Add an Ink Page Interactor to your pawn">
+    <Info>
+    **Already have an interaction system?** Skip this step and the demo keys entirely —
+    Inkwell's interactor is only a reference implementation. Add an **Ink Page Reader**
+    to your pawn and call it from your existing system instead; the
+    [worked example in the Integration guide](/plugins/inkwell/guides/integration#worked-example-an-interactable-base-class)
+    shows the full wiring for a typical interactable base class.
+    </Info>
+
+    Open your pawn (or character) Blueprint and add an **Ink Page Interactor**
+    component. That's it — the interactor is the reference "look at a page, press a
+    key, read it" implementation:
+
+    - It line-traces from the player's view (default reach **300 cm**, on the
+      **Visibility** channel, every **0.1 s**) for any actor carrying an Ink Page
+      Display or Ink Page Stack component.
+    - It finds an **Ink Page Reader** on the owner — or creates one automatically at
+      Begin Play — to do the actual snap-into-view work.
+    - With **Enable Default Input** on (the default), it binds demo keys on the owning
+      pawn: **E** interacts (toggle read), **Q** closes, **Left arrow / mouse wheel
+      down** turns back, **Right arrow / mouse wheel up** turns forward.
+
+    <Note>
+    The demo keys exist so pages are readable out of the box. For production, turn
+    **Enable Default Input** off and call the interactor's Blueprint-callable functions
+    (`Interact`, `Stop Reading`, `Next Page`, `Previous Page`) from your own input —
+    the shipped demo project binds the example Enhanced Input actions this way. See
+    [Integration](/plugins/inkwell/guides/integration).
+    </Note>
+  </Step>
+
+  <Step title="Play">
+    Press Play. Walk up to the page, look at it, and press **E**: the page floats up in
+    front of the camera (by default 45 cm ahead, blending over 0.3 s) and stays glued
+    to your view. While reading, the reader locks movement and freezes the camera by
+    default — both locks have their own toggle on the
+    [Ink Page Reader](/plugins/inkwell/components/reader). Turn pages with the arrow keys or mouse
+    wheel, then press **Q** (or **E** again) to put the page back — it floats down to
+    exactly where it lay.
+  </Step>
+</Steps>
+
+## Where next
+
+<CardGroup cols={2}>
+  <Card title="Plug into your own interaction system" icon="plug" href="/plugins/inkwell/guides/integration#worked-example-an-interactable-base-class">
+    Keep your interactor and drive an **Ink Page Reader** from it — a worked example for
+    the classic interactable-base-class setup.
+  </Card>
+  <Card title="Show a 'Press E to read' prompt" icon="message" href="/plugins/inkwell/guides/integration">
+    Bind the interactor's **On Focus Changed** event to show and hide a prompt widget —
+    the shipped `WBP_InkwellReadPrompt` example does exactly this.
+  </Card>
+  <Card title="Page Documents in depth" icon="file-lines" href="/plugins/inkwell/authoring/documents">
+    Page size, margins, paper and ink tints, default text style, per-page overrides.
+  </Card>
+  <Card title="Stacks of paper" icon="layer-group" href="/plugins/inkwell/components/page-stack">
+    Sheet size, gap, fan angle, splay, and interp speed — all with live editor preview.
+  </Card>
+  <Card title="Project Settings → Inkwell" icon="sliders" href="/plugins/inkwell/reference/settings">
+    Repoint the page material, sheet mesh, default paper, and default font project-wide.
+  </Card>
+</CardGroup>

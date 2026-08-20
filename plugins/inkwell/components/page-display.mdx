@@ -1,0 +1,141 @@
+---
+title: "Ink Page Display"
+description: "Show a Page Document on any mesh in your level — the base display component every other Inkwell surface builds on."
+icon: "note-sticky"
+---
+
+**Ink Page Display** (`UInkPageDisplayComponent`) is the simplest way to get an authored
+page into the world: drop it on any actor that owns a mesh, point it at a
+[Page Document](/plugins/inkwell/authoring/documents), and the mesh shows that page. The text and images
+are baked into an ink layer and multiplied over the paper texture by the Inkwell page
+material, so the writing reads as ink or print on the surface rather than a decal.
+
+It is an ordinary actor component (find it in **Add Component** under the *Inkwell*
+group), fully usable from Blueprint without any C++, and it works in an empty project.
+It also deliberately contains no input handling — it only exposes a page API
+(**Next Page** / **Previous Page** / **Set Page Index**) for your own interaction code to
+call, plus an **On Page Changed** event to react to. If you want ready-made interaction,
+pair it with the [Ink Page Interactor](/plugins/inkwell/components/interactor) and
+[Ink Page Reader](/plugins/inkwell/components/reader), or wire your own system — see the
+[integration guide](/plugins/inkwell/guides/integration).
+
+<Tip>
+If you want a whole *pile* of paper instead of a single surface — one sheet mesh per
+page, with animated page turns — use [Ink Page Stack](/plugins/inkwell/components/page-stack). It extends
+this component, so the properties, page API, and events on this page all apply to it
+too; only the presentation details below (target mesh, the no-document blank sheet, the
+preview render target) are replaced by the stack's own sheet handling.
+</Tip>
+
+## Properties
+
+| Property | Type | Default | What it does |
+| --- | --- | --- | --- |
+| **Document** | Ink Page Document | *None* | The authored page content to show. Create one with **right-click → Inkwell → Page Document**. |
+| **Page Index** | Integer | `0` | Which page of the document is currently shown (0 = the first page). |
+| **Target Mesh** | Component reference | *None* | Mesh the page is drawn onto. Leave it empty to use the first mesh component found on this actor. |
+| **Apply On Begin Play** | Boolean | `true` | Draw the page automatically when the game starts. Turn this off to reveal it later yourself (call **Refresh**). |
+| **Loop Pages** | Boolean | `false` | Wrap from the last page back to the first (and vice versa) when turning pages. |
+| **Material Slot** *(advanced)* | Integer | `0` | Material slot on the target mesh that the page is drawn into. Usually 0. |
+| **Preview In Editor** *(advanced)* | Boolean | `true` | Update the page live in the level viewport while editing, without pressing Play. |
+
+## How the target mesh is resolved
+
+The component draws onto exactly one mesh, chosen like this:
+
+1. If **Target Mesh** is set and resolves to a mesh component, that mesh wins.
+2. Otherwise (including when the picked component turns out not to be a mesh), the
+   component falls back to the **first mesh component** found on the owning actor.
+3. If the actor has no mesh at all, nothing is drawn — and if a document is assigned, a
+   verbose log message points you at the problem.
+
+**Target Mesh** uses the standard component picker and accepts any
+mesh component class (static or skeletal).
+
+<Warning>
+The target mesh needs clean **0–1 UVs across the page face**. An atlas-mapped prop mesh
+will garble the text. The bundled `SM_PageSheet` mesh (a 100 cm plane) is made for this;
+for your own meshes, make sure the page area maps the full 0–1 UV square.
+</Warning>
+
+You can ask the component which mesh it settled on with **Resolve Target Mesh**
+(`ResolveTargetMesh`), and fetch the dynamic material instance it created with
+**Get Page Material** (`GetPageMaterial`) if you want to tweak material parameters
+yourself.
+
+## Page API
+
+All of these are Blueprint-callable (and available from C++):
+
+| Function | Returns | Notes |
+| --- | --- | --- |
+| **Set Document** (`SetDocument`) | — | Swaps in a different Page Document and shows the given page (default 0). Fires **On Page Changed**. |
+| **Set Page Index** (`SetPageIndex`) | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. Returns `true` only if the page actually changed. |
+| **Next Page** (`NextPage`) | Boolean | Turns to the next page. Returns `false` when already on the last page — unless **Loop Pages** is on, in which case it wraps to page 0. |
+| **Previous Page** (`PreviousPage`) | Boolean | Turns to the previous page. Returns `false` on the first page — unless **Loop Pages** is on, in which case it wraps to the last page. |
+| **Refresh** (`Refresh`) | — | Re-bakes and re-applies the current page. Call this after editing the document at runtime. |
+| **Get Page Count** (`GetPageCount`) | Integer | Pages in the current document (0 if no document is assigned). |
+| **Get Current Page Index** (`GetCurrentPageIndex`) | Integer | The page currently shown (0 = first page). |
+| **Is On First Page** (`IsOnFirstPage`) | Boolean | Handy for greying out a "previous" prompt. |
+| **Is On Last Page** (`IsOnLastPage`) | Boolean | Handy for greying out a "next" prompt. |
+| **Resolve Target Mesh** (`ResolveTargetMesh`) | Mesh Component | The mesh this component draws onto (see above). |
+| **Get Page Material** (`GetPageMaterial`) | Dynamic Material Instance | The material instance created for the current page, if the page has been drawn yet. |
+
+<Note>
+**Next Page** and **Previous Page** both return `false` when the document has one page
+or fewer, so it is safe to call them unconditionally from an input event.
+</Note>
+
+## Events
+
+**On Page Changed** (`OnPageChanged`) fires every time the shown page changes — a page
+turn, a document swap, or the initial draw at game start (when **Apply On Begin Play**
+is on). Use it to play a page-turn sound, update a "3 / 12" counter, and so on.
+
+It delivers two parameters:
+
+- **New Page Index** — the page now shown, 0-based.
+- **Page Count** — the number of pages in the current document.
+
+## What happens with no document
+
+If no document is assigned, the component does not leave stale ink in the material slot:
+it applies a **blank sheet** instead — the page material with the project's blank-ink
+texture and the paper texture turned off (both come from
+[Project Settings → Inkwell](/plugins/inkwell/reference/settings)). Assign a document later with
+**Set Document** and the page appears.
+
+## Editor preview
+
+With **Preview In Editor** on (the default), the page renders live in the level viewport
+as you edit — assign a document, scrub **Page Index**, or edit any property, and the mesh
+updates immediately without pressing Play. A few details worth knowing:
+
+- The preview is **cosmetic only**: it never dirties the level package, so simply opening
+  a map full of pages will not demand a save.
+- The preview reuses a single transient render target per component, so repeated viewport
+  refreshes do not allocate new render targets.
+- During editor startup the renderer can briefly be unavailable; the component
+  automatically retries the preview bake (up to 8 times with increasing delays, from
+  0.25 s up to 32 s — about a minute in total). If it still cannot bake, it logs a
+  warning and the sheet refreshes the next time it is edited or the map is reopened.
+- In play (game or PIE) the preview path is not used at all — pages bake through the
+  per-world page cache, which shares one bake between every display showing the same
+  document page. See [rendering](/plugins/inkwell/reference/rendering).
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
+    A physical pile of sheets — drop-in replacement for this component.
+  </Card>
+  <Card title="Ink Page Actor" icon="scroll" href="/plugins/inkwell/components/page-actor">
+    A ready-made placeable sheet built around this component.
+  </Card>
+  <Card title="Ink Page Widget" icon="window-maximize" href="/plugins/inkwell/components/page-widget">
+    The same page in a full-screen UMG UI.
+  </Card>
+  <Card title="Integration guide" icon="plug" href="/plugins/inkwell/guides/integration">
+    Driving the page API from your own interaction system.
+  </Card>
+</CardGroup>

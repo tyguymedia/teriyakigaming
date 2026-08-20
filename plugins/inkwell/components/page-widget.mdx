@@ -1,0 +1,120 @@
+---
+title: "Ink Page Widget"
+description: "Show a Page Document on screen in UMG — built with the same code as the in-world page, so the two look identical."
+icon: "window-maximize"
+---
+
+**Ink Page** (`UInkPageWidget`) shows a [Page Document](/plugins/inkwell/authoring/documents) on screen
+as a UMG widget — for reading a note in a full-screen UI instead of on a mesh in the
+world. Find it in the UMG palette under the **Inkwell** category.
+
+It builds the page with **exactly the same code** that bakes pages onto meshes, so an
+on-screen page and an in-world page look identical. The page is scaled to fit whatever
+slot you give it, keeping its authored aspect ratio and centering itself, so it works in
+any layout — a full-screen overlay, a journal panel, an inventory tooltip.
+
+<Note>
+Inkwell's [reader component](/plugins/inkwell/components/reader) shows pages *in the world*, snapped
+into the player's view — no UMG involved. Use this widget when you specifically want a
+screen-space reading UI of your own.
+</Note>
+
+## Properties
+
+| Property | Type | Default | What it does |
+| --- | --- | --- | --- |
+| **Document** | Ink Page Document | *None* | The authored page content to show. |
+| **Page Index** | Integer | `0` | Which page of the document is shown (0 = the first page). |
+| **Show Paper** | Boolean | `true` | Draw the document's paper texture behind the writing. Turn it off for ink over your own background. |
+| **Apply Ink Tint** *(advanced)* | Boolean | `true` | Apply the document's **Ink Tint** and **Ink Strength** to the writing, matching how the page material tints ink in the world. |
+
+<Note>
+These properties are read-only from Blueprint at runtime — set them in the Designer, or
+change them at runtime through the functions below (**Set Document**,
+**Set Page Index**), which also rebuild the page for you.
+</Note>
+
+## Blueprint API
+
+| Function | Returns | Notes |
+| --- | --- | --- |
+| **Set Document** (`SetDocument`) | — | Swaps in a different Page Document and shows the given page (default 0). |
+| **Set Page Index** (`SetPageIndex`) | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. Returns `true` only if the page actually changed. |
+| **Next Page** (`NextPage`) | Boolean | Turns to the next page. Returns `false` when already on the last page. |
+| **Previous Page** (`PreviousPage`) | Boolean | Turns to the previous page. Returns `false` when already on the first page. |
+| **Refresh** (`Refresh`) | — | Rebuilds the page. Call this after editing the document at runtime. |
+| **Get Page Count** (`GetPageCount`) | Integer | Pages in the assigned document (0 if none). |
+| **Get Current Page Index** (`GetCurrentPageIndex`) | Integer | The page currently shown (0 = first page). |
+
+Unlike the in-world components, the widget has no **Loop Pages** option — **Next Page**
+and **Previous Page** simply stop at the ends of the document.
+
+## How the page is drawn
+
+The widget layers two things inside a scale-to-fit box:
+
+1. **Paper** (when **Show Paper** is on): the current page's paper texture — its
+   **Paper Override**, falling back to the document's **Paper Texture** — tinted by the
+   document's **Paper Tint**. If neither is set, you get a flat sheet in the paper tint
+   instead.
+2. **Ink**: the page's text and images, built by the same widget-construction path the
+   in-world bake uses. With **Apply Ink Tint** on, the ink layer is tinted by the
+   document's **Ink Tint** with its opacity scaled by **Ink Strength** — the closest
+   Slate equivalent of what the page material does in the world.
+
+The result is sized at the document's page resolution and then scaled — up or down — to
+fit the slot while preserving aspect ratio, so text stays undistorted at any widget size.
+
+Turning a page swaps only the page content, not the whole widget, and if no document is
+assigned (or the page index is out of range of an empty document) the widget simply
+renders nothing.
+
+## Input passes through
+
+The widget is created **self hit-test invisible**: pages are read, not clicked, so mouse
+input falls through to whatever is underneath. If you build a reading UI with
+next/previous buttons, place the buttons as siblings of the page widget — they receive
+input normally; only the page itself lets clicks through. You can override this by
+changing the widget's **Visibility** in UMG like any other widget.
+
+## Example: a minimal reading screen
+
+<Steps>
+  <Step title="Create a widget Blueprint">
+    Add an **Ink Page** widget from the palette's Inkwell category, e.g. inside an
+    Overlay, and let it fill the space you want the page to occupy.
+  </Step>
+  <Step title="Assign content">
+    Set **Document** (and **Page Index**) in the Details panel — the Designer preview
+    shows the actual page — or call **Set Document** at runtime, e.g. with the document
+    from the note the player interacted with.
+  </Step>
+  <Step title="Add page turning">
+    Add your own next/previous buttons (or key handling) that call **Next Page** and
+    **Previous Page**. Use **Get Current Page Index** and **Get Page Count** for a
+    "3 / 12" label.
+  </Step>
+</Steps>
+
+<Tip>
+Because the widget and the in-world bake share one construction path, whatever you author
+in the [page editor](/plugins/inkwell/authoring/page-editor) — fonts, colors, placed images,
+justification — appears identically here. There is nothing extra to configure.
+</Tip>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Ink Page Reader" icon="book-open-reader" href="/plugins/inkwell/components/reader">
+    In-world reading without any UMG.
+  </Card>
+  <Card title="Page Documents" icon="pen-nib" href="/plugins/inkwell/authoring/documents">
+    Where Paper Tint, Ink Tint, and Ink Strength live.
+  </Card>
+  <Card title="Runtime documents" icon="wand-magic-sparkles" href="/plugins/inkwell/guides/runtime-documents">
+    Building documents from Blueprint and refreshing the widget.
+  </Card>
+  <Card title="Rendering reference" icon="gears" href="/plugins/inkwell/reference/rendering">
+    The shared page-construction and bake pipeline.
+  </Card>
+</CardGroup>

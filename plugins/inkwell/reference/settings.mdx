@@ -1,0 +1,119 @@
+---
+title: "Project Settings"
+description: "Every asset and material binding Inkwell uses, in one place — Project Settings > Plugins > Inkwell"
+icon: "sliders"
+---
+
+Inkwell never hard-codes a content path. Every asset the plugin loads — the page material,
+the sheet mesh, the fallback paper, the default font — resolves through
+**Project Settings → Plugins → Inkwell**, so your project can repoint any of them (your own
+ink material, your own paper, your own default font) without touching code.
+
+The settings class is `UInkwellSettings`, a config-backed developer settings object
+(`config = Game, defaultconfig`), so values you change are written to your project's
+`Config/DefaultGame.ini` and ship with the project.
+
+<Note>
+When a configured asset is unset or fails to load, Inkwell logs **one warning per
+session** naming the exact setting to fix (for example
+`Set 'Project Settings > Plugins > Inkwell > Page Ink Material'`), and the accessor returns
+nothing. If pages stop rendering after a settings change, check the Output Log for
+`LogInkwell` first.
+</Note>
+
+## Materials
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| **Page Ink Material** (`PageInkMaterial`) | Material (soft reference) | `/Inkwell/Materials/MI_PageInk` | Base material used to display baked pages on meshes. Every page display, stack, and `Apply Page To Mesh` call creates a dynamic instance of it. Must expose the ink/paper parameters named under [Material Parameters](#material-parameters). Repoint it to use your own page material (for example a lit parchment shader) without changing any code. |
+| **Page Preview Material** (`PagePreviewMaterial`) | Material (soft reference) | `/Inkwell/Materials/M_PageComposite_Preview` | Unlit twin of the page material, used only by the Page Editor's live preview so the editor shows the exact multiply the game does. If unset, the editor falls back to a paper + ink alpha stack, which still previews well enough to author with. |
+
+## Material Parameters
+
+These are the **parameter names** Inkwell writes into the page material's dynamic
+instances. The defaults match the shipped `MI_PageInk`; if you swap in your own page
+material, either name its parameters the same way or change these names to match
+(they are under **Advanced** in the settings panel).
+
+| Property | Type | Default | What it receives |
+|---|---|---|---|
+| **Ink Texture Parameter** (`InkTextureParameter`) | Name | `InkTexture` | Texture parameter that receives the baked ink render target. |
+| **Paper Texture Parameter** (`PaperTextureParameter`) | Name | `PaperTexture` | Texture parameter that receives the page's paper albedo. |
+| **Use Paper Texture Parameter** (`UsePaperTextureParameter`) | Name | `UsePaperTexture` | Scalar switch: set to 1 when a paper texture is supplied, 0 to use the material's flat paper colour instead. |
+| **Paper Tint Parameter** (`PaperTintParameter`) | Name | `PaperTint` | Vector parameter multiplied over the paper. |
+| **Ink Tint Parameter** (`InkTintParameter`) | Name | `InkTint` | Vector parameter multiplied over the ink — tints everything written on the pages. |
+| **Ink Strength Parameter** (`InkStrengthParameter`) | Name | `InkStrength` | Scalar parameter: 1 = fully opaque ink; lower values let more paper grain through every stroke. |
+
+The values pushed into these parameters come from each [Ink Page Document](/plugins/inkwell/authoring/documents)
+(its Ink Tint, Ink Strength, Paper Tint, and paper texture). See
+[Rendering Pipeline](/plugins/inkwell/reference/rendering#the-page-material) for exactly what gets set when.
+
+## Content
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| **Page Sheet Mesh** (`PageSheetMesh`) | Static Mesh (soft reference) | `/Inkwell/Meshes/SM_PageSheet` | Default mesh for page sheets — used by [Ink Page Actor](/plugins/inkwell/components/page-actor) and by [Ink Page Stack](/plugins/inkwell/components/page-stack) when its own Sheet Mesh override is unset. Must have clean 0–1 UVs across the page face: atlas-mapped prop meshes garble page content, because the baked ink is sampled across the full 0–1 UV range. |
+| **Default Paper Texture** (`DefaultPaperTexture`) | Texture 2D (soft reference) | `/Inkwell/Textures/T_PaperPlain` | Paper albedo used when a Page Document does not specify one of its own. |
+| **Blank Ink Texture** (`BlankInkTexture`) | Texture 2D (soft reference) | `/Inkwell/Textures/T_InkNone` | Fully transparent texture assigned to page sheets that have no content yet, so a bare sheet renders as blank paper instead of showing whatever was in the ink slot before. A display component with no Document assigned uses it too. |
+| **Default Page Font** (`DefaultPageFont`) | Font (soft reference) | `/Engine/EngineFonts/Roboto` | Font used by documents whose own Default Font is unset. Point it at one of the bundled Inkwell fonts (for example `/Inkwell/Fonts/Font_CrimsonText`) to change the project-wide look of every unstyled run in one place. |
+
+## Fonts
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| **Font Search Paths** (`FontSearchPaths`) | Array of content directories | `/Inkwell/Fonts`, `/Game` | Content paths scanned for runtime composite Font assets to list in the Page Editor's font picker. |
+| **Include Engine Fonts** (`bIncludeEngineFonts`) | Bool | `true` | Also list the engine's built-in fonts (`/Engine/EngineFonts`, i.e. Roboto) in the font picker. They always sort last. |
+| **Font Build Output Path** (`FontBuildOutputPath`) | String | `/Game/Fonts` | Where the **Import Font Family** tool (`Inkwell.ImportFontFamily`) writes the composite Font assets it generates. Must be a writable project path — plugin content is read-only in a shipped plugin install. |
+
+<Warning>
+Keep **Font Search Paths** tight on large projects. Every font found is loaded to read its
+typeface names, so scanning all of `/Game` costs a hitch when the Page Editor window opens.
+If your project has thousands of assets, replace the default `/Game` entry with the
+specific folder your fonts live in.
+</Warning>
+
+## Rendering
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| **Max Page Bake Dimension** (`MaxPageBakeDimension`) | Integer (64–8192) | `4096` | Safety clamp on page bake resolution, per axis, in pixels. A document asking for more than this is scaled down proportionally (aspect ratio preserved) rather than allocating a render target of hundreds of megabytes. See [page size clamping](/plugins/inkwell/reference/rendering#page-size-clamping). |
+| **New Document Page Size Pixels** (`NewDocumentPageSizePixels`) | Int Point | `1024 × 1400` | Page size, in pixels, assigned to newly created Page Documents. |
+
+## Editor
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| **Show Toolbar Button** (`bShowToolbarButton`) | Bool | `true` | Show the Inkwell button in the Level Editor toolbar. Turn it off if your project has a crowded toolbar — the Page Editor is still reachable by double-clicking a Page Document, from the Tools menu, and from the `Inkwell.OpenPageEditor` console command. Takes effect after an editor restart. |
+
+## Reading settings from Blueprint
+
+The resolved assets are available as Blueprint-pure functions (category
+**Inkwell → Settings**), each returning the loaded asset or nothing (with the one-shot
+warning described above):
+
+- **Get Page Ink Material** (`GetPageInkMaterial`)
+- **Get Page Preview Material** (`GetPagePreviewMaterial`)
+- **Get Page Sheet Mesh** (`GetPageSheetMesh`)
+- **Get Default Paper Texture** (`GetDefaultPaperTexture`)
+- **Get Blank Ink Texture** (`GetBlankInkTexture`)
+- **Get Default Page Font** (`GetDefaultPageFont`)
+
+In C++ the same accessors exist as static functions on `UInkwellSettings`, plus
+`Resolve*` aliases with identical behaviour.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Rendering pipeline" icon="gears" href="/plugins/inkwell/reference/rendering">
+    Where the material and parameter settings are actually used.
+  </Card>
+  <Card title="Installation & packaging" icon="download" href="/plugins/inkwell/installation">
+    Cooking notes for repointed settings assets.
+  </Card>
+  <Card title="Fonts" icon="font" href="/plugins/inkwell/authoring/fonts">
+    What the font search paths and import output path feed.
+  </Card>
+  <Card title="Troubleshooting" icon="circle-question" href="/plugins/inkwell/reference/faq">
+    What the one-per-session settings warnings mean.
+  </Card>
+</CardGroup>

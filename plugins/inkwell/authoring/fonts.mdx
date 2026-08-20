@@ -1,0 +1,190 @@
+---
+title: "Fonts"
+description: "The five bundled open-licensed font families, how font resolution works, and importing your own fonts with the import dialog."
+icon: "font"
+---
+
+Inkwell renders page text with standard Unreal **runtime-cached composite font assets**
+(`UFont`): one font asset per family, with typeface entries named `Regular`, `Bold`,
+`Italic`, and `BoldItalic`. The [Page Editor](/plugins/inkwell/authoring/page-editor)'s **B** and *I*
+buttons switch a run between those typefaces, so a family only supports bold or italic if
+it actually contains that face.
+
+## The bundled families
+
+Five families ship inside the plugin at `/Inkwell/Fonts/`, chosen to cover five
+typographic roles (typewriter, book serif, casual handwriting, neat handwriting, formal
+script). All are redistributable under the **SIL Open Font License 1.1**:
+
+| Font asset | Faces | Upstream project | Author(s) | License |
+|---|---|---|---|---|
+| `Font_CourierPrime` | Regular, Bold, Italic, BoldItalic | [Courier Prime](https://fonts.google.com/specimen/Courier+Prime) | Alan Dague-Greene / Quote-Unquote Apps | OFL 1.1 |
+| `Font_CrimsonText` | Regular, Bold, Italic, BoldItalic | [Crimson Text](https://fonts.google.com/specimen/Crimson+Text) | Sebastian Kosch | OFL 1.1 |
+| `Font_Kalam` | Regular, Bold | [Kalam](https://fonts.google.com/specimen/Kalam) | Indian Type Foundry / Jyotish Sonowal | OFL 1.1 |
+| `Font_PatrickHand` | Regular | [Patrick Hand](https://fonts.google.com/specimen/Patrick+Hand) | Patrick Wagesreiter | OFL 1.1 |
+| `Font_GreatVibes` | Regular | [Great Vibes](https://fonts.google.com/specimen/Great+Vibes) | TypeSETit (Robert E. Leuschke) | OFL 1.1 |
+
+The OFL permits bundling and redistribution, including in commercial products, provided
+the license text accompanies the fonts and the fonts are not sold on their own. Both
+conditions are met by the plugin distribution: the full license texts ship at
+`Plugins/Inkwell/Resources/Licenses/`, so shipping these fonts in your game is covered.
+
+<Warning>
+Only redistribute fonts you are licensed to redistribute. Most system fonts — including
+every Microsoft-supplied one (Courier New, Georgia, Ink Free, Segoe Print, Segoe
+Script...) — **cannot** ship in a product. If you own a license for a font, the import
+dialog below brings it into your project in one step.
+</Warning>
+
+## How font resolution works
+
+### Unstyled text
+
+Text with no styling applied renders in the document's effective default font, resolved
+through a three-step chain (`GetEffectiveDefaultFont`):
+
+1. The document's own **Default Font**, when set.
+2. Otherwise, the project-wide **Default Page Font**
+   ([Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)) — point it at one of the
+   bundled fonts (for example `/Inkwell/Fonts/Font_CrimsonText`) to change the look of
+   every unstyled run in the project in one place.
+3. As a last resort, the engine's own Roboto (`/Engine/EngineFonts/Roboto`), which ships
+   with every Unreal install — so text is never invisible in a project that has configured
+   nothing.
+
+### Styled runs
+
+Styled runs store their font as an **object path** in the page markup (the `Font`
+attribute), plus a `Face` naming the typeface entry. At render time the path is resolved
+and loaded on demand; an invalid or missing path falls back to the document's default
+style. Runs that omit `Font`/`Face` entirely inherit the document default.
+
+<Warning>
+Because markup stores fonts as strings, the cooker cannot see them. The Page Editor
+maintains the document's [Font References](/plugins/inkwell/authoring/documents#font-references) list on
+every **Save Document** so the fonts get cooked — the effective default font included.
+Never clear that list, or a packaged build renders fallback glyphs.
+</Warning>
+
+### The font picker's list
+
+The Page Editor discovers fonts by scanning the Asset Registry across the
+**Font Search Paths** configured in
+[Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings) — by default
+`/Inkwell/Fonts` then `/Game`. Only **runtime**-cached composite fonts with at least one
+typeface entry qualify. The list sorts plugin fonts first, then project fonts, then
+anything else, then engine fonts; **Include Engine Fonts** (default on) also lists
+`/Engine/EngineFonts` (Roboto), always last.
+
+<Tip>
+Keep **Font Search Paths** tight on large projects: every font found is loaded to read its
+typeface names, so scanning all of `/Game` costs a hitch when the window opens.
+</Tip>
+
+### Bold/italic face picking
+
+When you press **B** or *I* in the editor, it looks for a matching face by name, falling
+back gracefully: bold-italic tries `BoldItalic`, `Bold Italic`, then `BoldOblique`; bold
+tries `Bold`; italic tries `Italic` then `Oblique`; then `Regular` or `Default`; and
+finally the family's first face. A family without the requested face silently renders what
+it has — deliberate, not a bug.
+
+## Importing your own fonts
+
+The **Import Font Families** dialog turns a folder of `.ttf`/`.otf` files into ready-to-use
+composite font assets. Open it from:
+
+- the **import button** next to the font picker in the [Page Editor](/plugins/inkwell/authoring/page-editor) toolbar,
+- **Import Font Family...** in the toolbar **Page Editor** dropdown or **Tools → Inkwell** menu,
+- the console: `Inkwell.ImportFontFamily` with no arguments. (With arguments —
+  `Inkwell.ImportFontFamily <SourceFolder> [DestinationContentPath]` — it imports the
+  folder directly without the dialog, reusing already-imported faces.)
+
+<Steps>
+  <Step title="Pick a source folder">
+    **Browse...** to a folder of `.ttf`/`.otf` files (scanned recursively), or type a
+    content path of existing Font Face assets (e.g. `/Game/MyFaces`) to build composite
+    fonts from assets you already imported. The folder is scanned as soon as the path is
+    committed.
+  </Step>
+  <Step title="Review the detected families">
+    Each detected family shows a checkbox (include it or not), an editable family name
+    (renaming it renames the built `Font_<Name>` asset), and which of the four faces —
+    Regular, Bold, Italic, BoldItalic — were found. Missing faces are dimmed and simply
+    won't exist in the composite font. Duplicate faces warn; the first one wins.
+  </Step>
+  <Step title="Choose a destination">
+    A content path the composite fonts are built into — default `/Game/Fonts`, taken from
+    **Font Build Output Path** in project settings. Imported font faces go into its
+    `Faces` subfolder. **Overwrite existing** (default off) re-imports faces that already
+    exist at the destination instead of reusing them.
+  </Step>
+  <Step title="Import">
+    One composite runtime font is built and saved per checked family, named
+    `Font_<FamilyName>`. The status line and a notification report the result; details
+    land in the Output Log. The window stays open for another import, and every open Page
+    Editor's font picker refreshes automatically.
+  </Step>
+</Steps>
+
+Make sure the destination is inside a configured **Font Search Path** (the default
+`/Game/Fonts` is, since `/Game` is searched by default) so the new families appear in the
+picker.
+
+### How filenames become families and faces
+
+Families and typefaces are inferred from filenames. Style tokens are peeled off the end of
+the name (separators `-`, `_`, and spaces are all treated the same), so
+`CrimsonText-Bold-Italic`, `CrimsonText-BoldItalic`, and `Crimson Text_Bold Italic` all
+resolve to family *CrimsonText*, face *BoldItalic*. Recognized tokens:
+
+| Face | Recognized tokens (case-insensitive) |
+|---|---|
+| Regular | `regular`, `normal`, `book`, `roman`, `rg`, `r` |
+| Bold | `bold`, `bd`, `b` |
+| Italic | `italic`, `oblique`, `it`, `i` |
+| BoldItalic | `bolditalic`, `boldoblique`, `bi`, `z` |
+
+Legacy Microsoft/Adobe-style suffixes glued straight onto the stem (`courbd`, `courbi`,
+`georgiaz`) are also recognized, but only for names with no separator at all and only when
+a real stem remains.
+
+<Note>
+Unrecognized weight or width words — `Light`, `SemiBold`, `Condensed` — deliberately keep
+the whole name as the family: the editor's bold/italic model has exactly four slots, so
+`Kalam-Light` becomes its own family rather than masquerading as Regular.
+</Note>
+
+### Doing it by hand
+
+The dialog is a convenience, not a requirement. You can import a TTF as a Font Face
+yourself, wrap it in a **runtime-cached** `UFont` whose default typeface names its faces
+`Regular` / `Bold` / `Italic` / `BoldItalic`, and place it in one of the configured font
+search folders — it will be discovered like any other family.
+
+<AccordionGroup>
+  <Accordion title="Inkwell.BuildDemoFonts (plugin authoring only)">
+    This console command rebuilds the bundled families from the plugin's
+    `Tools/FontSource` folder into `/Inkwell/Fonts`. It exists for authoring the plugin
+    itself — in a shipped (cooked) plugin install, `/Inkwell` is read-only and the source
+    TTFs are not distributed, so integrators should use the import dialog or
+    `Inkwell.ImportFontFamily`, which target a project path instead.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Page Editor" icon="pen-nib" href="/plugins/inkwell/authoring/page-editor">
+    Use your families from the toolbar's font picker and B / I buttons.
+  </Card>
+  <Card title="Font settings" icon="sliders" href="/plugins/inkwell/reference/settings#fonts">
+    Font Search Paths, Include Engine Fonts, and the import output path.
+  </Card>
+  <Card title="Font References" icon="file-lines" href="/plugins/inkwell/authoring/documents#font-references">
+    How documents keep styled-run fonts alive through cooking.
+  </Card>
+  <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+    Referencing fonts from markup you build at runtime.
+  </Card>
+</CardGroup>

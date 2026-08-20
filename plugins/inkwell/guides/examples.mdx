@@ -1,0 +1,119 @@
+---
+title: "Example content"
+description: "A tour of the example assets that ship inside the plugin, and the separate demo project on GitHub"
+icon: "box-open"
+---
+
+Inkwell ships working example content *inside the plugin* — a journal prop, a sample
+multi-page document, a read-prompt widget, and a set of Enhanced Input actions. Use them
+as reference implementations to copy from, or drop them straight into a level to see the
+plugin working before you build anything of your own.
+
+## Finding the content
+
+The examples live at `/Inkwell/Examples/`. In the Content Browser:
+
+<Steps>
+  <Step title="Show plugin content">
+    Open the Content Browser's **Settings** menu and enable **Show Plugin Content**.
+  </Step>
+  <Step title="Browse to the examples">
+    In the source panel, go to **Plugins → Inkwell Content → Examples**.
+  </Step>
+</Steps>
+
+<Note>
+Because this content lives inside the plugin, it cooks automatically whenever the plugin
+is enabled — no extra "additional asset directories to cook" entries needed.
+</Note>
+
+## What's in the Examples folder
+
+| Asset | Path | What it is |
+|---|---|---|
+| `BP_InkwellJournalStack` | `/Inkwell/Examples/Blueprints/` | Example journal prop: an actor Blueprint carrying an Ink Page Stack, made to display the sample journal document |
+| `DA_InkwellJournal` | `/Inkwell/Examples/` | Multi-page example Ink Page Document |
+| `WBP_InkwellReadPrompt` | `/Inkwell/Examples/UI/` | Example "Press E to read" prompt widget driven by the interactor's focus/reading state |
+| `IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack` | `/Inkwell/Examples/Input/` | Enhanced Input actions the demo binds |
+
+### BP_InkwellJournalStack
+
+An example actor Blueprint showing the standard readable-prop recipe: an actor carrying
+an [Ink Page Stack](/plugins/inkwell/components/page-stack) component. Drag it into a level, point the
+stack's **Document** at `DA_InkwellJournal`, and (with an
+[Ink Page Interactor](/plugins/inkwell/components/interactor) on your pawn) it is immediately readable —
+the document renders as a physical pile of sheets, one sheet per page, current page on
+top.
+
+It's also a live playground for the stack's look: select the placed actor and drag the
+stack's properties (sheet size, gap, fan angle, splay, interp speed) — the pile updates
+in the editor viewport as you edit, no PIE required.
+
+### DA_InkwellJournal
+
+A multi-page example [Ink Page Document](/plugins/inkwell/authoring/documents). Double-click it to open
+the [Page Editor](/plugins/inkwell/authoring/page-editor) and see how a finished document is put together
+— styled runs, page layout, multiple pages. It's the document made for
+`BP_InkwellJournalStack`.
+
+### WBP_InkwellReadPrompt
+
+An example UMG prompt widget implementing the standard "Press E to read" flow: on Tick it
+finds the owning pawn's Ink Page Interactor and Ink Page Reader and polls
+**Get Focused Page** / **Is Reading**, showing the read prompt when a page is under the
+crosshair and hiding it while reading. An equivalent event-driven wiring — binding
+**On Focus Changed** and **On Reading Started** / **On Reading Ended** instead of ticking
+— is described step by step in
+[Suppressing prompts and reacting to reading](/plugins/inkwell/guides/integration#suppressing-prompts-and-reacting-to-reading).
+
+### The Enhanced Input actions
+
+Four ready-made Input Action assets, matching the interactor's four BlueprintCallable
+entry points:
+
+| Action asset | Maps naturally to |
+|---|---|
+| `IA_Interact` | **Interact** — open the focused page / close the one being read |
+| `IA_NextPage` | **Next Page** |
+| `IA_PreviousPage` | **Previous Page** |
+| `IA_PutBack` | **Stop Reading** — put the page being read back down |
+
+Add key mappings for them to your project's Input Mapping Context and call the interactor
+functions from their Enhanced Input events in your pawn — the full recipe is in
+[Wiring "press E to read" with Enhanced Input](/plugins/inkwell/guides/integration#wiring-press-e-to-read-with-enhanced-input).
+
+## Other content shipped with the plugin
+
+Beyond the Examples folder, the plugin content includes:
+
+| Path | Contents |
+|---|---|
+| `/Inkwell/Demo/DA_InkwellSample` | A sample Ink Page Document |
+| `/Inkwell/Fonts/...` | Five open-licensed font families — see [Fonts](/plugins/inkwell/authoring/fonts) |
+| `/Inkwell/Materials/` | `M_PageInk` (the page ink material), `MI_PageInk`, `M_PageComposite_Preview` |
+| `/Inkwell/Meshes/SM_PageSheet` | The page sheet mesh — a 100 cm plane with clean 0–1 UVs |
+| `/Inkwell/Textures/` | `T_PaperPlain`, `T_InkNone` |
+
+## The demo project
+
+A complete demo *project* lives separately on GitHub:
+[github.com/tyguymedia/Inkwell](https://github.com/tyguymedia/Inkwell). It keeps the
+FirstPerson template map, and its first-person character demonstrates the recommended
+production input setup:
+
+- An **Ink Page Interactor** on the character with **Enable Default Input** turned
+  **off** (so the hard-coded demo keys — E, Q, arrows, mouse wheel — are not used),
+- the example Enhanced Input actions (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`,
+  `IA_PutBack`) bound to the interactor's functions in the character Blueprint, and
+- key mappings for those four actions added to the project's `IMC_Default` Input Mapping
+  Context, alongside the template's own move/look mappings.
+
+If you plan to wire Inkwell into your own Enhanced Input setup, copy that pattern — it is
+exactly the integration path documented in the
+[integration guide](/plugins/inkwell/guides/integration#wiring-press-e-to-read-with-enhanced-input).
+
+<Tip>
+For a from-scratch walkthrough (install → author → place → read), start with the
+[Quickstart](/plugins/inkwell/quickstart) instead — the examples here are most useful as reference
+implementations to open next to your own Blueprints.
+</Tip>

@@ -1,0 +1,221 @@
+---
+title: "Page Documents"
+description: "The Ink Page Document asset: pages, the rich-text markup model, paper and ink settings, and the content revision that keeps bakes fresh."
+icon: "file-lines"
+---
+
+An **Ink Page Document** (`UInkPageDocument`) is the asset that holds everything you author:
+the pages, their rich text and images, the paper look, and the default text style. It is a
+Data Asset — no world, no components — so one document can be shown by any number of
+[displays](/plugins/inkwell/components/page-display), [stacks](/plugins/inkwell/components/page-stack),
+[widgets](/plugins/inkwell/components/page-widget), and [actors](/plugins/inkwell/components/page-actor) at once.
+
+At runtime, each page's text and images are baked into an ink render target which the page
+material multiplies over the paper texture, so the content reads as ink or print rather than
+a decal. See [Rendering](/plugins/inkwell/reference/rendering) for how that pipeline works.
+
+## Creating a document
+
+<Steps>
+  <Step title="From the toolbar">
+    Click the **Page Editor** dropdown on the level editor toolbar and choose
+    **Create New Page Document...**. The asset is created where you choose and opens
+    straight into the [Page Editor](/plugins/inkwell/authoring/page-editor).
+  </Step>
+  <Step title="Or from the Tools menu">
+    **Tools → Inkwell** offers the same menu in projects where the toolbar button is
+    hidden (**Show Toolbar Button** in [Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)).
+  </Step>
+  <Step title="Or from the Content Browser">
+    **Add** (or right-click) **→ Inkwell → Page Document** creates the asset in the
+    current folder, like any other asset type.
+  </Step>
+</Steps>
+
+A new document always starts with one empty page, and the **New Document Page Size Pixels**
+project setting controls the page size assigned to newly created documents. New documents
+are also seeded from project settings so they render something immediately: the
+project-wide **Default Paper Texture** becomes the document's Paper Texture, and the
+**Default Page Font** becomes its Default Font (with Default Typeface set to `Regular`).
+
+<Tip>
+Author documents with the [Page Editor](/plugins/inkwell/authoring/page-editor) — double-click the asset.
+The markup format is machine-generated and not meant to be typed by hand.
+</Tip>
+
+## Pages
+
+The document's content is an array of pages (`Pages`). Each page (`FInkPageSpec`) carries:
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| Markup | String | empty | The page's rich text in UE rich-text format; styled runs carry font, size, color, and typeface attributes. Authored by the Page Editor. |
+| Images | Array of Ink Page Image | empty | Freely placed images on this page (see below). |
+| Paper Override | Texture 2D | None | Replaces the document's paper texture for this page only. |
+| Justification | Text Justify | Left | Per-page text alignment: Left, Center, or Right. |
+
+### Placed images
+
+Each entry in a page's **Images** array (`FInkPageImage`) is one image box, positioned in
+**normalized page coordinates**: (0,0) is the page's top-left corner, (1,1) the bottom-right.
+Because positions and sizes are normalized, changing the page size rescales your layout
+instead of scattering it.
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| Texture | Texture 2D | None | The image to draw. |
+| Position | Vector 2D | (0.1, 0.1) | Top-left corner of the image box, normalized. |
+| Size | Vector 2D | (0.3, 0.0) | Normalized width/height of the box. A height of 0 (or less) keeps the texture's aspect ratio. |
+| Rotation Degrees | Float | 0.0 | Rotation of the image, −180° to 180°. |
+| Opacity | Float | 1.0 | Image opacity, 0–1. |
+| Behind Text | Boolean | false | Draws the image behind the text instead of over it — letterheads, watermarks, ruled lines. |
+
+## Page Setup
+
+Geometry of every page in the document:
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| Page Size Pixels | Int Point | (1024, 1400) | Bake resolution of a page in pixels. Also defines the aspect ratio of the layout. |
+| Margins Px | Margin | 90 px on all four sides | Text margins, in page pixels. |
+| Line Height Percentage | Float | 1.18 | Line height multiplier (0.5–3). |
+
+<Note>
+The bake resolution is safety-clamped by **Max Page Bake Dimension** in
+[Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings) (default 4096 per axis). A
+document asking for more is scaled down proportionally — aspect ratio preserved — rather
+than allocating an enormous render target.
+</Note>
+
+## Paper & Ink
+
+The look of the sheet and of everything written on it:
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| Paper Texture | Texture 2D | None | Paper albedo. Unset, the page material falls back to its plain-paper color. |
+| Paper Tint | Linear Color | White | Multiplied over the paper. |
+| Ink Tint | Linear Color | White | Global multiplier on the baked ink — tints everything written on the pages. |
+| Ink Strength | Float | 1.0 | 1 = fully opaque ink; lower values (0–1) let more paper grain through every stroke. |
+
+A per-page **Paper Override** on any page replaces the document paper for that page only —
+`GetPaperForPage` returns the override when set, otherwise the document's texture.
+
+## Default Text Style
+
+The style of **unstyled** text — anything you type without applying toolbar styling:
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| Default Font | Font | None | Font for unstyled text (a composite `UFont` asset with runtime caching). Unset = the project's Inkwell default font. |
+| Default Typeface | Name | None | Typeface entry inside the composite font ("Regular", "Bold", "Italic", ...). |
+| Default Font Size | Float | 28.0 | Default text size (6–400, in page pixels at 96 DPI). |
+| Default Color | Linear Color | (0.02, 0.017, 0.025, 1.0) | Slightly warm near-black — it reads as ink better than pure black. |
+
+The effective default font resolves through a three-step chain
+(`GetEffectiveDefaultFont`): the document's **Default Font** when set, otherwise the
+project-wide **Default Page Font** ([Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)),
+and as a last resort the engine's own Roboto — so text is never invisible in a project that
+has configured nothing. See [Fonts](/plugins/inkwell/authoring/fonts) for the full picture.
+
+## The markup model
+
+Page text is stored as UE rich-text markup. A styled run looks like:
+
+```xml
+<TextStyle Font="/Inkwell/Fonts/Font_CrimsonText.Font_CrimsonText" Face="Bold" Size="28"
+  Color="(R=0.02,G=0.017,B=0.025,A=1.0)" U="1" S="1">text</>
+```
+
+The `TextStyle` tag's attributes are:
+
+| Attribute | Meaning |
+|---|---|
+| `Font` | Object path of the composite font asset. Invalid or missing = fall back to the document default. |
+| `Face` | Typeface entry inside the composite font ("Regular", "Bold", "Italic", "BoldItalic", ...). |
+| `Size` | Font size. |
+| `Color` | Text color as a linear color tuple. |
+| `U` | `1` = underline. Opt-in per run — never inherited from the defaults. |
+| `S` | `1` = strikethrough. Also opt-in per run. |
+
+Untagged text renders in the document's default text style. `Font` and `Face` are omitted
+entirely from a run when unset, so the document default wins.
+
+<Warning>
+All attribute values are machine-generated (paths, numbers, color tuples) — never
+user-entered strings — because the rich-text markup writer does not escape attribute
+values. These attribute keys are the on-disk format and are frozen: the Page Editor writes
+them, and hand-editing risks breaking documents. Author through the
+[Page Editor](/plugins/inkwell/authoring/page-editor) or the [Blueprint API](/plugins/inkwell/guides/runtime-documents).
+</Warning>
+
+The same rich-text marshaller drives both the in-game page bake and the Page Editor's
+WYSIWYG box — that shared code path is what keeps the two pixel-identical.
+
+### Font References
+
+**Font References** (advanced, under the Pages category) holds hard references to every
+font used anywhere in the markup. Markup stores fonts as string paths, which the cooker
+cannot see — the Page Editor maintains this list on save so the fonts get cooked and stay
+loadable in a packaged build.
+
+<Warning>
+Do not clear **Font References**. Without it a packaged build renders fallback glyphs
+wherever a styled run's font failed to cook. The list is refreshed automatically every time
+you press **Save Document** in the Page Editor.
+</Warning>
+
+## The content revision
+
+`ContentRevision` is a transient (not saved) counter bumped on every content change. The
+runtime bake cache keys on it, so stale render targets regenerate whenever a document
+changes — this is why edits in the Page Editor show up live on placed pages, even during PIE.
+
+If you mutate a document at runtime, call **Bump Revision** (`BumpRevision`) afterwards to
+invalidate every cached bake of that document. The Blueprint mutation functions below all
+do this for you.
+
+<Info>
+In the editor, **Bump Revision** also marks the asset's package dirty so authoring-time
+changes stay saveable — but *not* during a play session: data assets are not duplicated for
+PIE, so gameplay mutations deliberately leave the source asset untouched rather than
+offering to save play-time changes into the `.uasset` on exit.
+</Info>
+
+## Blueprint API
+
+The **Pages** array is deliberately read-only from Blueprint: every mutation must
+invalidate the bake cache, which a directly writable array could not guarantee. Build and
+edit documents at runtime through these instead (see
+[Runtime documents](/plugins/inkwell/guides/runtime-documents) for worked examples):
+
+| Function | Kind | What it does |
+|---|---|---|
+| Get Page Count | Pure | Number of pages in the document. |
+| Get Page | Pure | Copy of one page's data (a default page if the index is out of range). |
+| Get Paper For Page | Pure | Paper texture for a page: its Paper Override if set, otherwise the document's. |
+| Get Effective Default Font | Pure | The font unstyled text renders in, after the fallback chain. |
+| Add Page | Callable | Appends a page and returns its index. Invalidates cached bakes. |
+| Remove Page | Callable | Removes a page. Returns false if the index was out of range. Invalidates cached bakes. |
+| Set Page | Callable | Replaces one page wholesale. Returns false on a bad index. |
+| Set Page Markup | Callable | Replaces just one page's rich-text markup. Returns false on a bad index. |
+| Bump Revision | Callable | Invalidates every cached bake of this document — call after changing pages any other way. |
+
+All of these are equally available from C++ on `UInkPageDocument`.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Page Editor" icon="pen-nib" href="/plugins/inkwell/authoring/page-editor">
+    Author pages visually — the WYSIWYG editor window.
+  </Card>
+  <Card title="Fonts" icon="font" href="/plugins/inkwell/authoring/fonts">
+    The bundled families, font resolution, and importing your own.
+  </Card>
+  <Card title="Runtime documents" icon="code" href="/plugins/inkwell/guides/runtime-documents">
+    Build and edit documents at runtime from Blueprint.
+  </Card>
+  <Card title="Rendering" icon="wand-magic-sparkles" href="/plugins/inkwell/reference/rendering">
+    How the ink bake pipeline and cache work.
+  </Card>
+</CardGroup>

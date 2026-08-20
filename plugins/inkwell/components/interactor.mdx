@@ -1,0 +1,161 @@
+---
+title: "Ink Page Interactor"
+description: "The reference look-at-and-press-a-key interaction: a focus line trace, a prompt event for your UI, and demo key bindings that make pages readable out of the box."
+icon: "hand-pointer"
+---
+
+**Ink Page Interactor** (`UInkPageInteractorComponent`) is the reference "look at a page,
+press a key, read it" interaction. It line-traces from the player's view for an actor
+carrying an [Ink Page Display](/plugins/inkwell/components/page-display) component, raises a focus event
+you can drive a "Press E to read" prompt from, and drives an
+[Ink Page Reader](/plugins/inkwell/components/reader) to snap the page into view.
+
+It is a **self-contained demo implementation** so pages are readable out of the box: drop
+the one component on your pawn and you have focus detection, a reader, and working keys.
+Production projects with their own interaction system should skip it and call the
+Ink Page Reader directly — see the [integration guide](/plugins/inkwell/guides/integration).
+
+## What one component gets you
+
+Add **Ink Page Interactor** to your player pawn. At Begin Play it makes itself a complete
+setup:
+
+- **Reader** — it looks for an Ink Page Reader on the same actor and reuses it if one
+  exists (so any reader settings you tuned are respected). If there is none, it creates
+  one automatically (named `InkPageReader`; a verbose `LogInkwell` message notes the
+  creation). **Get Reader** returns whichever one it is driving, so you can adjust reader
+  properties like View Distance or the input locks at runtime.
+- **Focus tracing** — every **Focus Check Interval** seconds it line-traces from the
+  player's view and tracks which page display, if any, is under the crosshair.
+- **Demo keys** — with **Enable Default Input** on (the default), it binds a small set of
+  keyboard/mouse keys on the owning pawn so the whole loop works with zero wiring.
+
+## The focus line trace
+
+The trace starts at the player's view point — the possessing controller's camera view
+when the owner is a pawn (the same view resolution the reader uses), or the actor's eyes
+otherwise — and runs straight along the view direction for **Interaction Distance**
+centimetres.
+
+Details worth knowing:
+
+- It is a **single line trace by channel** on **Trace Channel** (default **Visibility**),
+  using simple collision, ignoring the owning actor.
+- Whatever actor the trace hits is asked for an Ink Page Display component
+  (`FindComponentByClass`). The **first blocking hit** decides: if a wall blocks the
+  trace before the page, there is no focus.
+- Focus only changes when it actually changes: **On Focus Changed** is broadcast once per
+  transition, not per trace. A focused page that gets destroyed is treated as a focus
+  loss, so listeners still get their "lost focus" broadcast with a null page.
+- While a page is being read there is **no world focus**: the focused page is cleared the
+  moment reading starts (so your "Read" prompt hides immediately) and tracing pauses
+  until the page is put back.
+
+<Note>
+[Ink Page Stack](/plugins/inkwell/components/page-stack) sheets block exactly one collision channel —
+their **Sheet Trace Channel**, which defaults to **Visibility** to match the interactor's
+**Trace Channel** default. If you move either one to a custom channel, move both, or the
+focus trace will pass straight through the sheets.
+</Note>
+
+### Debugging the trace
+
+Turn on **Draw Debug Trace** to see each focus trace in the world: the line draws
+**green** when it hits a readable page and **red** otherwise, with a small ring laid flat
+against the surface at the impact point. Each drawn line lives one focus interval (plus a
+small slack) so it never flickers out between traces. Debug drawing has no effect in
+Shipping or Test builds.
+
+## Properties
+
+All properties live under **Inkwell → Interaction** and are editable per instance and
+readable/writable from Blueprint.
+
+| Property | Type | Default | What it does |
+| --- | --- | --- | --- |
+| **Interaction Distance** (`InteractionDistance`) | Float | `300.0` cm | How far away a page can be and still be picked up by the focus trace. |
+| **Trace Channel** (`TraceChannel`) | Collision Channel | `Visibility` | Collision channel the focus trace runs on. Visibility suits most projects, and matches the Ink Page Stack's Sheet Trace Channel default. |
+| **Focus Check Interval** (`FocusCheckInterval`) | Float | `0.1` s | Seconds between focus traces. `0` traces every tick; the default is plenty for a reticle prompt. |
+| **Draw Debug Trace** (`bDrawDebugTrace`) | Bool | `false` | Draw each focus trace in the world: green when it hits a readable page, red otherwise, with a small ring at the impact point. No effect in Shipping or Test builds. |
+| **Enable Default Input** (`bEnableDefaultInput`) | Bool | `true` | Bind the demo keys on the owning pawn. Turn this off when integrating your own input. |
+
+## Demo key bindings
+
+With **Enable Default Input** on, the interactor binds these keys on the owning pawn's
+input component:
+
+| Key | Action |
+| --- | --- |
+| **E** | Interact — open the focused page, or close the page being read |
+| **Q** | Close — put the page being read back down |
+| **Right arrow** / **mouse wheel up** | Turn to the next page |
+| **Left arrow** / **mouse wheel down** | Turn to the previous page |
+
+How the bindings behave:
+
+- They are plain key bindings, which **still fire under Enhanced Input's** player input —
+  no input actions or mapping contexts required.
+- None of them **consume input**, so movement, look, and your own bindings on the same
+  keys pass through untouched.
+- Pawns are usually possessed (and get their input component) after the component's Begin
+  Play, so the interactor keeps retrying the binding from its tick until the pawn has an
+  input component to bind to. The keys are bound at most once.
+
+### When to turn Enable Default Input off
+
+Turn it off the moment you wire the interactor into your own input — otherwise the
+hardcoded keys fire alongside yours. With it off, call the Blueprint functions below from
+your own input events instead. The shipped demo character does exactly this: it binds the
+example Enhanced Input actions (`/Inkwell/Examples/Input/IA_Interact`, `IA_NextPage`,
+`IA_PreviousPage`, `IA_PutBack`) to the interactor in Blueprint, with Enable Default
+Input turned off. See the [examples tour](/plugins/inkwell/guides/examples).
+
+## Events
+
+| Event | When it fires | Payload |
+| --- | --- | --- |
+| **On Focus Changed** (`OnFocusChanged`) | The page under the player's view changes. | `New Focus` — the Ink Page Display now being looked at, or **null when focus was lost** — including the moment reading begins. Drive your "Press E to read" prompt from this: show it when New Focus is valid, hide it when null. |
+
+The example prompt widget `/Inkwell/Examples/UI/WBP_InkwellReadPrompt` is a working
+listener for this event.
+
+## Blueprint API
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| **Interact** (`Interact`) | — | Toggles reading: opens the currently focused page, or closes the page being read. Does nothing when nothing is focused and nothing is being read. |
+| **Stop Reading** (`StopReading`) | — | Puts the page being read back down. Does nothing when nothing is being read. |
+| **Next Page** (`NextPage`) | Bool | Turns the page being read forward. Works only while reading; returns false otherwise, or when already on the last page and the display's **Loop Pages** is off. |
+| **Previous Page** (`PreviousPage`) | Bool | Turns the page being read back. Works only while reading; returns false otherwise, or when already on the first page and the display's **Loop Pages** is off. |
+| **Get Focused Page** (`GetFocusedPage`) | Ink Page Display | The page display currently under the player's view, or null. **Always null while reading.** |
+| **Is Reading** (`IsReading`) | Bool | True while a page is snapped into view for reading. |
+| **Get Reader** (`GetReader`) | Ink Page Reader | The reader component this interactor drives — found or created on the owner at Begin Play. |
+
+## Relationship to the reader
+
+The interactor does none of the snap-into-view work itself. Everything visual — the
+float-up blend, View Distance and offsets, Follow Camera, both input locks,
+physics/collision capture — belongs to the [Ink Page Reader](/plugins/inkwell/components/reader) it
+drives, and is configured there.
+
+The split gives you a clean migration path:
+
+<CardGroup cols={2}>
+<Card title="Prototype: interactor" icon="flask" href="/plugins/inkwell/components/reader">
+One component, working focus prompt and keys, a reader created for you. Tune reading feel
+via Get Reader or by adding your own pre-configured reader next to it — the interactor
+reuses an existing reader instead of creating one.
+</Card>
+<Card title="Production: reader only" icon="gears" href="/plugins/inkwell/guides/integration">
+Drop the interactor, keep the reader. Your own interaction system decides what is
+readable and when, and calls Begin Reading / End Reading / Next Page / Previous Page
+directly.
+</Card>
+</CardGroup>
+
+<Tip>
+Reading state lives on the reader, so the interactor's **Is Reading** simply reports the
+reader's. If some other system starts a read on the same reader, the interactor plays
+along correctly: it clears its focus, pauses tracing, and its Q/close key puts that page
+back too.
+</Tip>
