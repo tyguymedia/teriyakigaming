@@ -1,21 +1,23 @@
 ---
 title: "Ink Page Widget"
-description: "Show a Page Document on screen in UMG — built with the same code as the in-world page, so the two look identical."
+description: "Show an Ink Page Document on screen in UMG — built from the same layer stack as the in-world page, so the two match."
 icon: "window-maximize"
 ---
 
-**Ink Page** (`UInkPageWidget`) shows a [Page Document](/plugins/inkwell/authoring/documents) on screen
-as a UMG widget — for reading a note in a full-screen UI instead of on a mesh in the
-world. Find it in the UMG palette under the **Inkwell** category.
+**Ink Page** (`UInkPageWidget`) draws an [Ink Page Document](/plugins/inkwell/authoring/documents) as a
+UMG widget: a letter filling the screen, a note in an inventory panel, a page on a
+clipboard rendered by a Widget Component in the world. Find it in the UMG palette under
+the **Inkwell** category.
 
-It builds the page with **exactly the same code** that bakes pages onto meshes, so an
-on-screen page and an in-world page look identical. The page is scaled to fit whatever
-slot you give it, keeping its authored aspect ratio and centering itself, so it works in
-any layout — a full-screen overlay, a journal panel, an inventory tooltip.
+It composes the page from the same layer stack the in-world bake walks — the same text
+boxes, images, drawings, per-layer visibility and opacity — so an on-screen page and an
+in-world page show the same content. The page keeps its authored aspect ratio and scales
+to fit whatever slot you give it, so it works in any layout.
 
 <Note>
-Inkwell's [reader component](/plugins/inkwell/components/reader) shows pages *in the world*, snapped
-into the player's view — no UMG involved. Use this widget when you specifically want a
+If you want the player to read a page *in the world* — the sheet floating up in front of
+the camera, no UI — you do not need this widget at all. That is the
+[Ink Page Reader](/plugins/inkwell/components/reader). Use this widget when you specifically want a
 screen-space reading UI of your own.
 </Note>
 
@@ -23,98 +25,174 @@ screen-space reading UI of your own.
 
 | Property | Type | Default | What it does |
 | --- | --- | --- | --- |
-| **Document** | Ink Page Document | *None* | The authored page content to show. |
-| **Page Index** | Integer | `0` | Which page of the document is shown (0 = the first page). |
-| **Show Paper** | Boolean | `true` | Draw the document's paper texture behind the writing. Turn it off for ink over your own background. |
-| **Apply Ink Tint** *(advanced)* | Boolean | `true` | Apply the document's **Ink Tint** and **Ink Strength** to the writing, matching how the page material tints ink in the world. |
+| **Document** (`Document`) | Ink Page Document | *None* | The authored page content to show. |
+| **Page Index** (`PageIndex`) | Integer | `0` | Which page of the document is shown (0 = the first page). |
+| **Show Paper** (`bShowPaper`) | Boolean | `true` | Draw the page's paper behind the writing. Turn it off to lay ink over your own background. |
+| **Apply Ink Tint** (`bApplyInkTint`) *(advanced)* | Boolean | `true` | Apply the document's **Ink Tint** and **Ink Strength** to the writing, matching how the page material tints ink in the world. |
 
-<Note>
-These properties are read-only from Blueprint at runtime — set them in the Designer, or
-change them at runtime through the functions below (**Set Document**,
-**Set Page Index**), which also rebuild the page for you.
-</Note>
+<Warning>
+All four are **read-only from Blueprint**. Set them in the Designer, or change them at
+runtime with **Set Document** / **Set Page Index** below — those rebuild the page for you.
+A plain Set node on **Document** would change the value without redrawing anything, which
+is why the property is not writable.
+</Warning>
 
 ## Blueprint API
 
-| Function | Returns | Notes |
+| Node | Returns | What it does |
 | --- | --- | --- |
-| **Set Document** (`SetDocument`) | — | Swaps in a different Page Document and shows the given page (default 0). |
-| **Set Page Index** (`SetPageIndex`) | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. Returns `true` only if the page actually changed. |
-| **Next Page** (`NextPage`) | Boolean | Turns to the next page. Returns `false` when already on the last page. |
-| **Previous Page** (`PreviousPage`) | Boolean | Turns to the previous page. Returns `false` when already on the first page. |
-| **Refresh** (`Refresh`) | — | Rebuilds the page. Call this after editing the document at runtime. |
-| **Get Page Count** (`GetPageCount`) | Integer | Pages in the assigned document (0 if none). |
-| **Get Current Page Index** (`GetCurrentPageIndex`) | Integer | The page currently shown (0 = first page). |
+| **Set Document** | — | Swaps in a different Ink Page Document and shows the given page (default 0). Clamps the index and rebuilds. |
+| **Set Page Index** | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. True only when the page actually changed. |
+| **Next Page** | Boolean | Turns to the next page. False when already on the last page. |
+| **Previous Page** | Boolean | Turns to the previous page. False when already on the first page. |
+| **Refresh** | — | Rebuilds the page. Call it after editing the document at runtime. |
+| **Get Page Count** | Integer | Pages in the assigned document (0 if none). |
+| **Get Current Page Index** | Integer | The page currently shown (0 = first). |
 
-Unlike the in-world components, the widget has no **Loop Pages** option — **Next Page**
-and **Previous Page** simply stop at the ends of the document.
+There is no **Loop Pages** option here: **Next Page** and **Previous Page** stop at the
+ends of the document. If you want wrapping, call **Set Page Index** with your own
+arithmetic against **Get Page Count**.
 
 ## How the page is drawn
 
-The widget layers two things inside a scale-to-fit box:
+The widget builds three things inside a scale-to-fit box:
 
-1. **Paper** (when **Show Paper** is on): the current page's paper texture — its
-   **Paper Override**, falling back to the document's **Paper Texture** — tinted by the
-   document's **Paper Tint**. If neither is set, you get a flat sheet in the paper tint
-   instead.
-2. **Ink**: the page's text and images, built by the same widget-construction path the
-   in-world bake uses. With **Apply Ink Tint** on, the ink layer is tinted by the
-   document's **Ink Tint** with its opacity scaled by **Ink Strength** — the closest
-   Slate equivalent of what the page material does in the world.
+1. **Paper**, when **Show Paper** is on. The page's paper is resolved exactly as it is in
+   the world: the page's own **Paper Override** if it has one, otherwise the document's
+   paper — a texture in **Texture** paper mode, or the
+   [generated paper](/plugins/inkwell/authoring/paper) in **Procedural** mode. Either way it is tinted by
+   the document's **Paper Tint**. With no paper at all you get a flat sheet in that tint.
+2. **Ink**: the page's layer stack, walked back to front, one slot per **visible** layer —
+   text boxes, images and drawings alike, each at its own layer **Opacity**. Hidden
+   layers are skipped, exactly as in the bake.
+3. **The ink tint**, when **Apply Ink Tint** is on: the whole ink subtree is tinted by the
+   document's **Ink Tint**, with its opacity multiplied by **Ink Strength**. That is the
+   closest Slate equivalent of what the page material does in the world.
 
-The result is sized at the document's page resolution and then scaled — up or down — to
-fit the slot while preserving aspect ratio, so text stays undistorted at any widget size.
+Turning a page swaps only the page content, not the whole widget. With no document
+assigned — or a page index outside an empty document — the widget draws nothing.
 
-Turning a page swaps only the page content, not the whole widget, and if no document is
-assigned (or the page index is out of range of an empty document) the widget simply
-renders nothing.
+### How it differs from the mesh-based display
 
-## Input passes through
+[Ink Page Display](/plugins/inkwell/components/page-display) bakes the page into an ink render target and
+hands that to the Inkwell page material, which multiplies the ink over the paper on a
+mesh. The widget skips all of that and composes the page as live Slate widgets.
+
+| | Ink Page widget | [Ink Page Display](/plugins/inkwell/components/page-display) |
+| --- | --- | --- |
+| Where it lives | Screen space (or a Widget Component) | On a mesh in the world |
+| How it draws | Slate widgets, composed live | Ink baked to a render target, multiplied over paper by the page material |
+| Sizing | Scaled to fit its slot, aspect preserved | Real-world centimeters from **Page Width Cm** × **Page Scale** |
+| Ink tinting | Slate tint over the ink subtree | Material parameters (**Ink Tint**, **Ink Strength**) |
+| Lighting | None — UI, always at full brightness | Lit by the scene like any other material |
+| Page turning | **Next Page** / **Previous Page**, no looping | Same, plus **Loop Pages** and **On Page Changed** |
+| Events | None | **On Page Changed**, **On Page Size Changed** |
+| Runtime cost | Rebuilt on each page turn; no render target | One cached render target per page, per world |
+
+Two consequences worth planning around: the widget has **no events**, so drive your
+"3 / 12" label from **Get Current Page Index** after each turn rather than waiting to be
+told; and because it never touches the bake cache, editing a document at runtime needs
+only **Refresh** on the widget — no cache clearing.
+
+The layout size is the document's page size, clamped the same way the bake is
+(**Max Page Bake Dimension** in [Settings](/plugins/inkwell/reference/settings)), so a page laid out on
+screen matches the one baked in the world.
+
+## Input passes through the page
 
 The widget is created **self hit-test invisible**: pages are read, not clicked, so mouse
-input falls through to whatever is underneath. If you build a reading UI with
-next/previous buttons, place the buttons as siblings of the page widget — they receive
-input normally; only the page itself lets clicks through. You can override this by
-changing the widget's **Visibility** in UMG like any other widget.
+input falls through it to whatever is underneath. Put next/previous buttons *beside* the
+page widget (siblings in an Overlay or Canvas Panel), not behind it — they receive input
+normally. If you need the page itself to be clickable, change its **Visibility** to
+**Visible** in the Designer like any other widget.
 
-## Example: a minimal reading screen
+## A full-screen letter overlay
+
+The common case: the player interacts with a note, a letter fills the screen, arrow keys
+or buttons turn pages, Escape closes it.
 
 <Steps>
-  <Step title="Create a widget Blueprint">
-    Add an **Ink Page** widget from the palette's Inkwell category, e.g. inside an
-    Overlay, and let it fill the space you want the page to occupy.
-  </Step>
-  <Step title="Assign content">
-    Set **Document** (and **Page Index**) in the Details panel — the Designer preview
-    shows the actual page — or call **Set Document** at runtime, e.g. with the document
-    from the note the player interacted with.
-  </Step>
-  <Step title="Add page turning">
-    Add your own next/previous buttons (or key handling) that call **Next Page** and
-    **Previous Page**. Use **Get Current Page Index** and **Get Page Count** for a
-    "3 / 12" label.
-  </Step>
+<Step title="Create the widget Blueprint">
+Content Browser → right-click → **User Interface → Widget Blueprint**, based on **User
+Widget**. Call it something like `WBP_LetterOverlay`.
+</Step>
+<Step title="Build the backdrop">
+Put a **Canvas Panel** at the root. Add an **Image** anchored to fill the screen, tinted
+black at around 0.6 alpha, and leave its **Visibility** at **Visible** so it swallows
+clicks that miss the page.
+</Step>
+<Step title="Add the page">
+Drag **Ink Page** from the palette's **Inkwell** category onto the canvas. Anchor it to
+fill the screen and give it generous padding (say 120 on each side) — it scales to fit
+that box and keeps the page's shape, so the letter sits centered with margin around it.
+Tick **Is Variable** in the Details panel so the graph can reach it.
+</Step>
+<Step title="Add the chrome">
+As siblings of the page — not children — add a **Text** block for the page counter and
+two **Buttons** for previous/next. They are hit-testable normally; only the page lets
+clicks through.
+</Step>
+<Step title="Expose the document">
+In the graph, add a variable **Letter** of type **Ink Page Document**, mark it
+**Instance Editable** and **Expose on Spawn**.
+</Step>
+<Step title="Show the first page">
+On **Event Construct**: **Set Document** (Target = the Ink Page variable, New Document =
+**Letter**, New Page Index = 0), then call your counter-refresh function.
+</Step>
+<Step title="Turn pages">
+Button **On Clicked** → **Next Page** / **Previous Page** on the Ink Page variable, then
+refresh the counter: **Get Current Page Index** + 1, **Get Page Count**, formatted as
+`{0} / {1}`. Use the boolean return to gray out a button at the ends of the document.
+</Step>
+<Step title="Open it from gameplay">
+In your interaction logic: **Create Widget** (Class = `WBP_LetterOverlay`, Letter = the
+document from the note), **Add to Viewport**, then **Set Input Mode UI Only** and **Show
+Mouse Cursor**. If the note is an [Ink Page actor](/plugins/inkwell/components/page-actor), read its
+document with **Get Document**.
+</Step>
+<Step title="Close it">
+On your close key: **Remove from Parent**, **Set Input Mode Game Only**, hide the cursor.
+</Step>
 </Steps>
 
-<Tip>
-Because the widget and the in-world bake share one construction path, whatever you author
-in the [page editor](/plugins/inkwell/authoring/page-editor) — fonts, colors, placed images,
-justification — appears identically here. There is nothing extra to configure.
-</Tip>
+<Warning>
+If the overlay appears but the page area is blank, the document never arrived. Check that
+**Letter** is set on the Create Widget node — a variable exposed on spawn but left empty
+gives you a widget with no document, which draws nothing rather than erroring.
+</Warning>
 
-## See also
+## Other places this widget fits
 
 <CardGroup cols={2}>
-  <Card title="Ink Page Reader" icon="book-open-reader" href="/plugins/inkwell/components/reader">
-    In-world reading without any UMG.
+<Card title="Inventory and journal panels" icon="book">
+Drop the widget into an existing panel and call **Set Document** when the player selects
+an entry. Scale-to-fit means you do not have to match the panel to the page's shape.
+</Card>
+<Card title="In-world screens" icon="tv">
+Put the widget inside a User Widget and assign that to a **Widget Component** on an actor
+— a page on a monitor, a clipboard, a diegetic terminal. You get a page in the world
+without a mesh, a material or a bake.
+</Card>
+<Card title="Runtime-built pages" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+Build the document in Blueprint, then **Set Document**. Edit it later and call
+**Refresh**.
+</Card>
+<Card title="Reading in the world instead" icon="book-open-reader" href="/plugins/inkwell/components/reader">
+No UMG at all: the physical sheet floats up in front of the camera.
+</Card>
+</CardGroup>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Ink Page Documents" icon="file-lines" href="/plugins/inkwell/authoring/documents">
+    Where Paper Tint, Ink Tint and Ink Strength live, and how page size works.
   </Card>
-  <Card title="Page Documents" icon="pen-nib" href="/plugins/inkwell/authoring/documents">
-    Where Paper Tint, Ink Tint, and Ink Strength live.
+  <Card title="Layers" icon="clone" href="/plugins/inkwell/authoring/layers">
+    The stack this widget walks: text boxes, images and drawings, back to front.
   </Card>
-  <Card title="Runtime documents" icon="wand-magic-sparkles" href="/plugins/inkwell/guides/runtime-documents">
-    Building documents from Blueprint and refreshing the widget.
-  </Card>
-  <Card title="Rendering reference" icon="gears" href="/plugins/inkwell/reference/rendering">
-    The shared page-construction and bake pipeline.
+  <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+    Building and editing documents from Blueprint, then refreshing the widget.
   </Card>
 </CardGroup>

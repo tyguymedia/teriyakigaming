@@ -32,7 +32,7 @@
         "tab": "Inkwell",
         "groups": [
           {
-            "group": "Get started",
+            "group": "Get Started",
             "pages": [
               "plugins/inkwell/introduction",
               "plugins/inkwell/quickstart",
@@ -44,6 +44,9 @@
             "pages": [
               "plugins/inkwell/authoring/documents",
               "plugins/inkwell/authoring/page-editor",
+              "plugins/inkwell/authoring/layers",
+              "plugins/inkwell/authoring/drawing",
+              "plugins/inkwell/authoring/paper",
               "plugins/inkwell/authoring/fonts"
             ]
           },

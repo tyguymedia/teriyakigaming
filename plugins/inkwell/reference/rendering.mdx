@@ -1,62 +1,76 @@
 ---
 title: "Rendering Pipeline"
-description: "How a page goes from authored markup to ink on paper: the bake, the page material, the per-world cache, and the editor preview"
+description: "How a page becomes pixels: layers to a Slate widget tree, the render-target bake, the ink texture, and the page material that multiplies ink over paper"
 icon: "gears"
 ---
 
 Inkwell does not paste a texture on a quad. Each page of an
-[Ink Page Document](/plugins/inkwell/authoring/documents) is baked at runtime into an **ink layer** — a
-transparent render target containing only the content — which the page material then
-**multiplies** over the paper texture. Paper grain shows through every stroke, white never
-brightens the sheet, and the result reads as printing rather than a decal.
+[Ink Page Document](/plugins/inkwell/authoring/documents) (`UInkPageDocument`) is composed at runtime into
+a Slate widget tree, baked into an **ink texture** — a transparent render target holding
+nothing but the content — and the page material composites that ink over the paper. The
+paper survives inside every stroke, white ink cannot brighten the sheet, and the result
+reads as printing rather than a decal.
 
-This page documents that pipeline: the bake, the material parameters, the per-world page
-cache, the editor preview path, and the size clamp. The whole pipeline lives in one
-Blueprint function library, `UInkPageRenderLibrary` (category **Inkwell → Page Content**),
-plus a world subsystem, `UInkPageCacheSubsystem`.
+<Frame caption="A finished page as it bakes at runtime.">
+  <img src="/images/inkwell/baked-page.png" alt="An Inkwell page baked at runtime, ink composited over paper" />
+</Frame>
 
-## The pipeline at a glance
+Almost all of this lives in one Blueprint function library, `UInkPageRenderLibrary`
+(category **Inkwell → Page Content**), plus a world subsystem,
+`UInkPageCacheSubsystem`.
+
+## The pipeline
 
 <Steps>
-  <Step title="Compose the ink widget">
-    `BuildInkWidget` turns one page into a Slate widget tree: a page-sized box containing
-    an overlay of three layers — the images placed *behind* the text, the rich text block,
-    and the images placed *over* the text.
+  <Step title="Compose the layer stack into a Slate widget tree">
+    `BuildInkWidget` walks the page's [layers](/plugins/inkwell/authoring/layers) back to front and builds
+    one overlay slot per **visible** layer — text, image or drawing.
   </Step>
-  <Step title="Create the ink target">
-    `CreateInkTarget` allocates a transparent, linear-space render target at the page's
-    clamped size.
+  <Step title="Allocate a transparent ink target">
+    `CreateInkTarget` makes a linear-space render target at the page's clamped size, with a
+    fully transparent clear color.
   </Step>
-  <Step title="Render">
-    `RenderPageToTarget` draws the widget into the target with a gamma-free widget
-    renderer. The result is the ink layer: content over transparency.
+  <Step title="Draw the widget into it, twice">
+    `RenderPageToTarget` runs a gamma-free `FWidgetRenderer` over the tree. The result is
+    the ink layer: content over transparency, no paper anywhere in it.
   </Step>
-  <Step title="Apply the material">
+  <Step title="Feed the page material">
     A dynamic instance of the configured page ink material receives the ink texture plus
-    the document's paper and ink settings, and is assigned to your mesh (or handed to UMG
-    as a brush).
+    the document's paper and ink settings, and is assigned to a mesh slot (or handed to
+    UMG as a brush).
   </Step>
 </Steps>
 
 Because the ink layer never contains the paper, one document can be printed onto different
-papers, tinted per-document, and faded per-document without re-baking anything but the ink.
+papers, tinted, or faded without re-baking anything.
 
-## Composing the ink widget
+## Composing the widget tree
 
-`BuildInkWidget` lays the page out exactly as authored:
+`BuildInkWidget` produces a box sized to the page's clamped resolution, containing an
+`SOverlay` with **one slot per visible layer, in array order**. Index 0 draws first (the
+back of the page), the last entry draws last (the front). Nothing reorders or groups the
+layers: where a Text layer sits in that stack is exactly what decides whether an image is a
+watermark under the writing or a stamp over it.
 
-- **Layer order** is images behind the text, then the text, then images over the text
-  (each image's **Behind Text** flag picks its canvas).
-- **Text** is a Slate rich text block fed the page's markup, with the document's margins
-  (in page pixels), the page's justification, the document's line height percentage, and
-  automatic word wrap.
-- **Images** are placed on a constraint canvas in **normalized page coordinates** —
-  position (0,0) is the page's top-left, (1,1) its bottom-right — so changing the page
-  size rescales a layout instead of breaking it. An image height ≤ 0 means "keep the
-  texture's aspect ratio". Rotation (in degrees) pivots about the image's centre, and
-  opacity multiplies the image's alpha.
-- The whole overlay sits in a box sized to the page's **clamped** size (see below), so the
-  widget's layout size always matches the render target it is baked into.
+Layers whose **Visible** flag is off are skipped entirely — by the bake and by the Page
+Editor preview alike. Each layer's **Opacity** is applied as Slate *render opacity*, so it
+reaches text and drawn strokes, not only images.
+
+| Layer type | What it becomes |
+|---|---|
+| **Text** | An `SRichTextBlock` fed the layer's markup, using the document's Line Height Percentage and the layer's own Justification. A layer whose **Size** is zero on either axis fills the page inside the document's **Margins Px** and word-wraps automatically. A layer with a real size is placed on a constraint canvas at its normalized Position and wraps at an explicit pixel width instead. |
+| **Image** | An `SImage` on a constraint canvas, anchored at the layer's normalized Position. Width comes from the normalized Size; a height of 0 or less keeps the texture's aspect ratio. Rotation pivots about the image's center, and the image's own Opacity multiplies its alpha. |
+| **Drawing** | An `SInkStrokeCanvas` painting the layer's strokes with Inkwell's five procedural brushes. It is told the document's **unclamped** page width, so stroke widths keep their proportions whether the page bakes at full resolution, bakes clamped down, or previews small. |
+
+Every position and size in a layer is **normalized page space** — (0,0) is the page's
+top-left, (1,1) its bottom-right — so changing the page resolution rescales a layout
+instead of breaking it. Boxes are resolved against the *clamped* page size, the same size
+the widget itself is built at, so a document scaled down for the bake keeps everything
+where the author put it.
+
+Each Text layer gets **its own rich-text marshaller**. They are never shared: a marshaller
+carries the dirty flag its text block re-marshals on, and two blocks sharing one would let
+the first to paint clear the flag out from under the second, leaving it blank.
 
 ## The ink render target
 
@@ -64,153 +78,303 @@ papers, tinted per-document, and faded per-document without re-baking anything b
 
 | Property | Value | Why |
 |---|---|---|
-| Clear colour | Transparent | A transparent background is what lets the page material multiply ink over paper instead of pasting a sticker. |
+| Clear color | Transparent | The transparent background is what lets the material composite ink over paper instead of pasting a sticker. |
 | SRGB | `false` | Keeps the bake in linear space. |
 | Target gamma | `1.0` | Same. |
-| Pixel format | Slate's recommended colour format | Matches the Slate renderer. |
+| Pixel format | Slate's recommended color format | Matches the Slate renderer — 8-bit RGBA on desktop. |
 | Filtering | Bilinear | — |
+| Mip chain | None | The target is a single mip. See [page size](#page-size-and-what-it-costs). |
 
-The widget renderer runs **without gamma correction**, matching the render target: the
-page material samples the ink with a *LinearColor* sampler, so stored values must be
-linear — a gamma-space bake washes every colour out by exactly one gamma curve.
+The widget renderer runs **without gamma correction**, matching the target: the page
+material samples the ink with a *LinearColor* sampler, so the stored values must be linear.
 
 <Warning>
-If you build a custom page material and colours look washed out or double-bright, check
-your ink texture sampler type: the ink is stored **linear**, so sample it with a
-LinearColor sampler.
+Building your own page material? Sample the ink texture with a **LinearColor** sampler. A
+default sRGB sampler washes every color out by exactly one gamma curve — that is the cause
+of nearly every "my custom page material looks faded" report.
 </Warning>
 
-`RenderPageToTarget` must run on the **game thread**, and returns false (without baking)
-when rendering is impossible: the application cannot render, the null RHI is active, Slate
-is not initialized, or the target is missing. This matters in the editor at startup — see
-[editor preview](#editor-preview-render-targets).
+`RenderPageToTarget` is **game thread only**, and returns `false` without baking when
+rendering is impossible: the app cannot ever render, the null RHI is active, Slate is not
+initialized, or the target is missing.
 
 <Info>
-The bake deliberately draws the widget **twice** into the same target. Slate's auto-wrap
+The bake deliberately draws the widget **twice into the same target**. Slate's auto-wrap
 computes its wrap width from the geometry cached by the *previous* paint, and an offscreen
-widget has no previous paint — on a single draw, centre- and right-justified text would
-land shifted off the page. The first draw primes the geometry cache; the second draws the
-correctly wrapped layout over it.
+widget has no previous paint — on a single draw, center- and right-justified text lays out
+against a stale wrap width and lands shifted off the page. The first draw primes the
+geometry cache, the second draws the correctly wrapped layout over it. Text layers with an
+explicit box size wrap at a known width and sidestep the problem entirely, which is why
+they are built that way.
 </Info>
-
-## Page size clamping
-
-A document's **Page Size Pixels** is its bake resolution, and a mis-authored document
-could request a render target of hundreds of megabytes. Every ink target and draw size in
-the pipeline therefore derives from `GetClampedPageSize`:
-
-- Neither axis may exceed **Max Page Bake Dimension**
-  ([Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings#rendering), default **4096**).
-- The clamp is **proportional**: one scale factor is applied to both axes, so the aspect
-  ratio is preserved and a clamped bake still *fills* its target instead of cropping.
-- The floor is 2 × 2 pixels.
-
-Because the ink widget, the render target, and the draw size all use the same clamped
-size, an oversized document simply bakes at lower resolution — the layout is unchanged.
 
 ## The page material
 
 The base material comes from **Page Ink Material** in
-[Project Settings](/plugins/inkwell/reference/settings#materials) (default `MI_PageInk`, an instance of
-the shipped `M_PageInk`). There is no hardcoded content path anywhere in the runtime — the
-material, like everything else, resolves through settings.
+[Project Settings](/plugins/inkwell/reference/settings#materials) — by default
+`/Inkwell/Materials/MI_PageInk`, an instance of `M_PageInk`. There is no hard-coded content
+path anywhere in the runtime.
 
-When Inkwell applies a page, it creates a dynamic instance of that material and pushes
-these parameters (the parameter *names* are configurable in
-[settings](/plugins/inkwell/reference/settings#material-parameters); defaults shown):
+`M_PageInk` is an opaque, lit material: the composite goes into Base Color, so a page takes
+the scene's lighting like the physical object it is pretending to be. `M_PageComposite_Preview`
+is its unlit twin, writing the same composite into Emissive; the Page Editor uses it so the
+authoring preview matches the game exactly. Both sample the ink and paper textures as
+**LinearColor**.
 
-| Parameter (default name) | Set to |
+When Inkwell applies a page it creates a dynamic instance and pushes these parameters. The
+parameter *names* are configurable in
+[settings](/plugins/inkwell/reference/settings#material-parameters); the defaults are shown.
+
+| Parameter | Set from |
 |---|---|
-| `InkTexture` | The baked ink render target for the page. |
-| `InkTint` | The document's **Ink Tint**. |
-| `InkStrength` | The document's **Ink Strength** (1 = fully opaque ink; lower lets more paper grain through every stroke). |
+| `InkTexture` | The baked ink render target for this page. |
+| `InkTint` | The document's **Ink Tint** — a vector multiplied over everything written on the page. |
+| `InkStrength` | The document's **Ink Strength**. 1 is fully opaque ink; lower lets more paper through every stroke. |
 | `PaperTint` | The document's **Paper Tint**. |
-| `PaperTexture` + `UsePaperTexture = 1` | Set only when the page resolves a paper texture (the page's Paper Override if set, otherwise the document's Paper Texture). |
-| `UsePaperTexture = 0` | When there is no paper texture. The paper texture parameter is deliberately left alone in this case — the material keeps its own default — and only the switch is flipped, so the material falls back to its flat paper colour. |
+| `PaperTexture` | The page's resolved paper — its **Paper Override** if set, otherwise generated paper when Paper Mode is Procedural, otherwise the document's **Paper Texture**. Set only when a paper actually resolves. |
+| `UsePaperTexture` | `1` when a paper texture resolved, `0` when none did. |
 
-The material's core trick is the multiply: ink is composited over the paper by its alpha,
-so the paper texture survives inside every stroke and white ink cannot brighten the sheet.
-Setting **Ink Strength** below 1 lets more paper through, which is how you get faded
-pencil or old print.
-
-## The per-world page cache
-
-Baking a page is not free, and many things in a level may show the same page — a
-[stack](/plugins/inkwell/components/page-stack) and a [display](/plugins/inkwell/components/page-display) of the same
-journal, or five copies of the same note. In game and PIE worlds, all of them share bakes
-through `UInkPageCacheSubsystem`, a world subsystem that caches baked ink render targets.
-
-- **Cache key**: document path + page index + the document's **content revision**. The
-  revision is a transient counter bumped by every editor-side edit and by the document's
-  Blueprint mutation functions (Add Page, Set Page Markup, Bump Revision, …) — so edits
-  between PIE runs, and runtime document changes, regenerate cleanly instead of serving a
-  stale render target.
-- **Scope**: per world, game and PIE worlds only. Editor worlds have no cache subsystem
-  and bake on demand (used by the tools and editor previews).
-- **Invalidation**: **Clear Page Cache** (`ClearPageCache`) drops the cached bakes for one
-  document in the current world; the subsystem's **Clear Cache** with no document drops
-  everything. In practice you rarely call either — mutating a document through its
-  Blueprint API bumps the revision, so the stale bakes simply stop being served. They do
-  stay in the cache until it is cleared (or the world ends), so a long session that
-  mutates documents heavily can call **Clear Page Cache** to reclaim that memory.
-
-### The Blueprint bake API
-
-All on `UInkPageRenderLibrary`, category **Inkwell → Page Content**:
-
-| Function | What it does |
-|---|---|
-| **Get Page Count** (`GetPageCount`) | Number of pages in a document (0 for none). |
-| **Get Page Ink Texture** (`GetPageInkTexture`) | Returns the cached ink render target for one page, baking it on first request. In an editor world (no cache) it bakes uncached. |
-| **Apply Page To Mesh** (`ApplyPageToMesh`) | One-stop setup: creates a dynamic instance of the page ink material, feeds it the baked ink and the document's paper settings, and assigns it to the given material slot. The mesh needs clean 0–1 UVs across the page face. If the page ink material is not configured or not installed, it falls back to the mesh's existing material so the failure is visible (the ink parameters become no-ops on a foreign material). |
-| **Bake Page To New Target** (`BakePageToNewTarget`) | Bakes a page into a fresh render target you own — uncached. Game thread only. The target is outered to the world context object when one is given, so it lives as long as the object that asked for it. |
-| **Bake Page To Target** (`BakePageToTarget`) | Bakes into an existing render target you supply (it should match the document's page size). |
-| **Create Page Material** (`CreatePageMaterial`) | Creates the page material instance for a page without touching a mesh — for UMG, decals, and custom setups. |
-| **Clear Page Cache** (`ClearPageCache`) | Drops this world's cached bakes for a document. |
-| **Get Page Ink Brush** (`GetPageInkBrush`) | A Slate brush for one page's ink, sized as you ask — for UMG Image widgets. |
-
-C++ users also get the lower-level building blocks the components use:
-`GetClampedPageSize`, `BuildInkWidget`, `CreateInkTarget`, `RenderPageToTarget`,
-`ApplyPageMaterialParams`, and `GetPageBaseMaterial`.
-
-## Editor preview render targets
-
-Outside of play, the display components preview pages directly in the level viewport —
-through the *same* bake path the game uses, but with different render-target bookkeeping,
-because editor worlds have no page cache:
-
-- **Ink Page Display** bakes into **one reused transient render target** per component,
-  re-allocated only when the clamped page size changes. (It deliberately avoids the
-  library's editor fallback, which would allocate a fresh render target on every call.)
-- **Ink Page Stack** keeps **one reusable render target per sheet**, so a fanned pile of
-  sheets previews without churning allocations.
-
-Editor previews are cosmetic by design: applying a preview material never dirties the map
-package, so a level containing pages does not demand saving just because you opened it.
-Dynamic material instances are never saved into the level either — previews are rebuilt
-whenever the component registers, a property changes, or the map reopens.
+The `UsePaperTexture = 0` case is deliberately asymmetric: with no paper, Inkwell leaves
+the *texture* parameter alone — the material keeps its own default — and only flips the
+switch, so the material falls back to its flat paper color instead of being handed
+something arbitrary.
 
 <Note>
-During **editor startup**, a component can register before the Slate renderer is usable,
-so the very first preview bake can fail. Inkwell retries automatically on a ticker with
-exponential backoff (0.25 s up to 32 s, 8 attempts, about 60 s total), and logs a
-`LogInkwell` warning if the bake still fails after that. See the
-[FAQ entry](/plugins/inkwell/reference/faq#page-blank-at-startup) for what to do when you see it.
+A page with **no Document assigned** does not go through this path at all. The display
+component instances the page material, puts the **Blank Ink Texture** from settings in the
+ink slot and forces `UsePaperTexture` to 0, so a bare sheet shows blank paper rather than
+whatever ink was in that slot before.
 </Note>
 
-## See also
+## Why it reads as ink, not a decal
+
+Four decisions, all of them in the list above, add up to the effect:
+
+1. **The bake contains only content.** There is no paper in the ink texture — the
+   background is transparent, and the alpha is the coverage of the letterforms and strokes.
+2. **The material composites, it does not replace.** Ink is laid over the paper by its own
+   alpha, so the paper's grain, its ruling and its punched holes survive *inside* every
+   stroke. White ink cannot brighten the sheet, because there is nothing to brighten with —
+   uncovered pixels are paper.
+3. **Ink Strength is a real dial.** Dropping it below 1 lets more paper through every mark
+   at once, which is exactly how faded pencil and worn print behave.
+4. **The composite is base color on a lit material.** The page shades with the room. An
+   unlit overlay pasted on top would sit flat and bright wherever the paper went dark, and
+   that is the single thing that most reads as a sticker.
+
+## The bake cache
+
+Baking is not free, and many things in a level may show the same page — a
+[stack](/plugins/inkwell/components/page-stack) and a [display](/plugins/inkwell/components/page-display) of the same
+journal, or five copies of the same note. In **game and PIE worlds** they all share bakes
+through `UInkPageCacheSubsystem`, a world subsystem holding baked ink render targets.
+
+- **Key**: document path + page index + the document's **Content Revision**.
+- **Scope**: one cache per world, Game and PIE only. Editor worlds have no cache subsystem
+  and bake on demand.
+- **Population**: lazy. A page is baked the first time something asks for it, so a 40-page
+  book costs nothing until it is read.
+
+### What invalidates it
+
+`ContentRevision` is a transient counter on the document. It is **not** an eviction
+signal — it is part of the cache key, so bumping it means nothing will ever find the
+old entries again.
+
+| Action | Bumps Content Revision? |
+|---|---|
+| Any edit to the document asset in the editor (`PostEditChangeProperty`) | Yes |
+| **Add Page**, **Remove Page**, **Set Page**, **Set Page Markup**, **Set Layer Markup** | Yes |
+| **Set Page Layers**, **Add Page Layer**, **Remove Page Layer**, **Move Page Layer** | Yes |
+| **Bump Revision**, called yourself | Yes |
+| Writing into a struct you pulled out with **Get Page** | No — the struct is a copy. Push it back with **Set Page**. |
+
+<Warning>
+Bumping the revision orphans the old render targets but does not free them; they stay
+resident until the world ends. A long session that rewrites documents repeatedly — a
+notebook the player writes in, a log that appends — should call **Clear Page Cache** with
+that document to reclaim the memory. One or two rewrites are not worth the call.
+</Warning>
+
+**Clear Page Cache** (`ClearPageCache`) drops this world's cached bakes for one document.
+The subsystem's own **Clear Cache** with no document drops everything in the world.
+Neither re-bakes: call **Refresh** on the displaying component afterwards.
+
+## Page size and what it costs
+
+**Page Size Pixels** on the document is the bake resolution *and* the layout's coordinate
+space. Every ink target and draw size in the pipeline derives from `GetClampedPageSize`:
+
+- Neither axis may exceed **Max Page Bake Dimension**
+  ([Project Settings](/plugins/inkwell/reference/settings#rendering), default **4096**).
+- The clamp is **proportional** — one scale factor on both axes — so the aspect ratio
+  survives and a clamped bake still fills its target instead of cropping.
+- The floor is 2 × 2 pixels.
+- The Page Editor's **Size px** boxes accept 128–4096 per axis in steps of 64, so in
+  practice the default clamp only bites for documents built by script.
+
+An ink target is 4 bytes per pixel with no mips:
+
+| Page Size Pixels | Ink target, per baked page |
+|---|---|
+| 512 × 700 | ≈ 1.4 MB |
+| 1024 × 1400 (default) | ≈ 5.5 MB |
+| 1536 × 2100 | ≈ 13 MB |
+| 2048 × 2800 | ≈ 22 MB |
+| 4096 × 4096 | ≈ 67 MB |
+
+That is **per page actually baked**, and cached bakes accumulate as the player reads. A
+20-page journal at the default size costs about 110 MB once it has been read cover to
+cover. At 2048 × 2800 the same journal costs about 460 MB, which is the number that decides this
+setting on console.
+
+<Warning>
+The ink target has **no mip chain**. Baking far above the size the page occupies on screen
+does not just waste memory, it makes distant pages shimmer as the bilinear filter
+undersamples the letterforms. Oversizing is a real cost in image quality, not only in
+bytes.
+</Warning>
+
+## Picking Page Size Pixels
+
+Do it **before you author**, not after. Positions and box sizes for images, text boxes and
+stroke points are normalized and survive a resize, but everything authored in absolute page
+pixels does not: **Margins Px**, **Default Font Size** (and the per-run sizes in the
+markup), each stroke's **Width Px**, and the procedural paper's
+**Spacing / Thickness / Top margin / hole** values.
+Double the page resolution after writing a page and the text keeps its pixel size while the
+page grows around it — the writing effectively shrinks.
+
+<Steps>
+  <Step title="Choose the shape first">
+    The aspect ratio of Page Size Pixels *is* the physical shape of the paper —
+    `GetPageSizeCm()` derives the height from it and **Page Width Cm**. A4 is 1 : 1.414
+    (1024 × 1448); US Letter is 1 : 1.294 (1024 × 1325); the default 1024 × 1400 sits
+    between them. Landscape pages, postcards and torn scraps are other ratios.
+  </Step>
+  <Step title="Estimate the page's on-screen width at its closest">
+    A page held up by the [Ink Page Reader](/plugins/inkwell/components/reader) sits **45 cm** from the
+    camera by default. At a 90° horizontal field of view, a 21 cm-wide page at that
+    distance covers about **450 px on a 1920-wide viewport** and about **900 px at 4K**.
+    Lowering the reader's **View Distance** makes the page bigger on screen and raises the
+    number.
+  </Step>
+  <Step title="Take the next size up, and stop">
+    The default 1024 already oversamples that reading view comfortably. Go to 1536 or 2048
+    only when the page is genuinely larger on screen — a wall poster, a map the player
+    zooms into, a document read in a full-screen UMG layout. Do not raise it "for quality"
+    on a note read at arm's length; see the mip warning above.
+  </Step>
+  <Step title="Sanity-check the text size">
+    Default Font Size is 28 page pixels, and the default line height multiplier is 1.18. On
+    the default 1024 × 1400 page that fits roughly 35 lines between the 90 px margins. If
+    you change the page resolution, scale Margins Px
+    and Default Font Size by the same factor to keep the page looking the way it did.
+  </Step>
+</Steps>
+
+## Generated paper resolution
+
+When **Paper Mode** is Procedural, the paper is rasterized by the paper generator rather
+than loaded from an asset. It is sized from the **clamped page size** — the same size the
+ink bakes at — on purpose: paper of a different size would be resampled against the ink,
+which is how a 2 px ruling turns into a soft gray band.
+
+The sheet is an uncompressed BGRA8 transient texture, sRGB, trilinear, clamped addressing,
+never streamed, with a **mip chain box-filtered in linear space** on the way out. The mips
+are why a ruled page a few meters away still reads as ruled paper instead of aliasing into
+noise, and the linear averaging is why the ruling does not darken as it shrinks.
+
+Caching is by **hash of the settings plus the size**, and the cache lives on the *document*,
+not on each display — so twenty pages of one journal share a single generated sheet, and
+so do twenty copies of the note placed around a level. Change any procedural paper value
+and the hash changes, so the next request regenerates. Memory is about 1.33 × the flat
+size: roughly **7.6 MB** for a 1024 × 1400 sheet, once per document.
+
+<Tip>
+A per-page **Paper Override** beats everything, generated or not. Setting one on a single
+page does not disturb the shared generated sheet the other pages use.
+</Tip>
+
+## The UMG path skips the bake
+
+The [Ink Page widget](/plugins/inkwell/components/page-widget) (`UInkPageWidget`, shown in the palette as
+**Ink Page**) does **not** bake to a render target. It builds the very same widget tree with
+`BuildInkWidget` and puts it straight on screen inside a scale box, over a paper image, so
+an on-screen page and an in-world page are built from identical code.
+
+Consequences worth knowing:
+
+- No render target is allocated and nothing is cached — the page rebuilds when the widget
+  synchronizes, when you call **Refresh**, or when you turn a page.
+- **Show Paper** draws the document's resolved paper behind the writing, tinted by Paper
+  Tint. With no paper texture it falls back to a flat sheet in that tint.
+- **Apply Ink Tint** reproduces the material's ink handling the only way Slate can: the
+  document's Ink Tint with its alpha multiplied by Ink Strength, applied to the whole ink
+  subtree.
+- The page keeps its authored aspect ratio inside whatever slot you give it.
+
+## Editor preview
+
+Outside of play, the display components preview pages in the level viewport through the
+*same* bake path, with different render-target bookkeeping because editor worlds have no
+cache:
+
+- **Ink Page Display** bakes into **one reused transient render target** per component,
+  reallocated only when the clamped page size changes.
+- **Ink Page Stack** keeps **one render target per sheet**, so a fanned pile previews
+  without churning allocations.
+
+Previews are cosmetic by design. Applying a preview material never leaves the level package
+dirty, and dynamic material instances are never saved into a map — previews rebuild
+whenever the component registers, a property changes, or the map reopens.
+
+<Accordion title="A page is blank right after the editor starts">
+A component can register before the editor's Slate renderer is usable, so the first preview
+bake fails — and because dynamic material instances never serialize, the sheet would keep
+the level's saved null material override and stay on the checkerboard forever.
+
+Inkwell retries on the core ticker, up to **8 attempts**, and resets the counter whenever a
+bake succeeds. Normally the page pops in a moment after startup. If it keeps
+failing you get a `LogInkwell` warning naming the actor and saying the sheet will refresh
+next time it is edited or the map is reopened. Editing any property on the component
+forces a fresh preview. Persistent failure means rendering is genuinely unavailable (null
+RHI) or the page ink material cannot be loaded — check the Output Log for the settings
+warning.
+</Accordion>
+
+## The bake API from Blueprint
+
+Everything below is on `UInkPageRenderLibrary`, category **Inkwell → Page Content**. Full
+signatures are in the [Blueprint API reference](/plugins/inkwell/reference/blueprint-api#ink-page-render-library).
+
+| Node | What it does |
+|---|---|
+| **Get Page Ink Texture** | The cached ink target for a page, baking it on first request. |
+| **Apply Page To Mesh** | Instances the page material, feeds it ink and paper, assigns it to a mesh slot. |
+| **Bake Page To New Target** | Bakes into a fresh, uncached render target you own. |
+| **Bake Page To Target** | Bakes into a render target you already have. |
+| **Create Page Material** | The page material instance, without touching a mesh — UMG, decals, custom setups. |
+| **Get Page Ink Brush** | A Slate brush of one page's ink, for UMG Image widgets. |
+| **Clear Page Cache** | Drops this world's cached bakes for a document. |
+
+C++ additionally gets the pieces the components are built from: `GetClampedPageSize`,
+`BuildInkWidget`, `CreateInkTarget`, `RenderPageToTarget`, `ApplyPageMaterialParams` and
+`GetPageBaseMaterial`.
+
+## Next
 
 <CardGroup cols={2}>
   <Card title="Project Settings" icon="sliders" href="/plugins/inkwell/reference/settings">
-    The page ink material, parameter names, and Max Page Bake Dimension.
+    The page material, the parameter names, and Max Page Bake Dimension.
   </Card>
   <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
-    Mutating documents, revision bumps, and cache management in practice.
+    Mutating documents, revision bumps and cache management in practice.
   </Card>
-  <Card title="Blueprint API reference" icon="code" href="/plugins/inkwell/reference/blueprint-api">
-    The full render library and cache subsystem surface.
+  <Card title="Blueprint API" icon="code" href="/plugins/inkwell/reference/blueprint-api">
+    Every function on the render library and the cache subsystem.
   </Card>
-  <Card title="Troubleshooting" icon="circle-question" href="/plugins/inkwell/reference/faq">
-    Blank pages, garbled meshes, and washed-out colours diagnosed.
+  <Card title="FAQ" icon="circle-question" href="/plugins/inkwell/reference/faq">
+    Blank pages, stretched text and missing paper, diagnosed.
   </Card>
 </CardGroup>

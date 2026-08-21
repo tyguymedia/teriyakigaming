@@ -1,251 +1,328 @@
 ---
 title: "Ink Page Reader"
-description: "Snap a page into view for reading and float it back exactly where it lay — with input locks, physics capture, and clean edge-case handling."
+description: "Snap a page into view for reading and float it back exactly where it lay — with movement and camera locks, physics capture, and clean edge cases."
 icon: "book-open-reader"
 ---
 
-**Ink Page Reader** (`UInkPageReaderComponent`) is the component that lets a player pick up
-and read a page. Add it to your player — a pawn, character, or controller — and call
-**Begin Reading**: the page smoothly floats up in front of the camera. Call **End Reading**
+**Ink Page Reader** (`UInkPageReaderComponent`) is the component that lets a player pick
+up and read a page. Add it to your player — pawn, character or player controller — and
+call **Begin Reading**: the page floats up in front of the camera. Call **End Reading**
 and it floats back to exactly where it was lying.
 
-The reader contains **no input handling whatsoever**. It is a pure "snap into view"
-service, designed to be driven by whatever runs interaction in your project — your own
-interaction component, a Blueprint trigger, or the bundled
-[Ink Page Interactor](/plugins/inkwell/components/interactor) demo component. Everything is
-Blueprint-callable; the same API is available from C++ (`InkPageReaderComponent.h`).
+The reader contains **no input handling whatsoever**. It is a pure snap-into-view service,
+driven by whatever runs interaction in your project: your own interaction component, a
+Blueprint trigger, or the bundled [Ink Page Interactor](/plugins/inkwell/components/interactor). Every
+function is Blueprint-callable.
 
 <Note>
-The reader moves the **actor** that owns the page — specifically the owner of the
-[Ink Page Display](/plugins/inkwell/components/page-display) component you pass to Begin Reading. The
-level still owns that actor; the reader only holds weak references to it.
+The reader moves the **actor** that owns the page — the owner of the
+[Ink Page Display](/plugins/inkwell/components/page-display) component you hand to Begin Reading — so
+anything attached to that actor rides along. The level still owns the actor; the reader
+holds only weak references to it.
 </Note>
 
-## Adding the component
+## Adding it
 
-Add **Ink Page Reader** to your player pawn, character, or player controller (it is a
-Blueprint-spawnable actor component in the **Inkwell** category). If the component sits on
-a pawn, the input locks resolve the pawn's possessing controller; if it sits on a
-controller, that controller is used directly.
+Add **Ink Page Reader** from the **Add Component** menu (category **Inkwell**) to your
+player pawn, character or player controller. It is Blueprint-spawnable and Blueprintable,
+so you can subclass it if you want your own defaults.
+
+Where you put it decides which controller the input locks reach: on a **pawn**, the
+reader resolves the pawn's possessing controller; on a **controller**, that controller is
+used directly. Either works.
 
 If you use the [Ink Page Interactor](/plugins/inkwell/components/interactor), you do not need to add a
-reader yourself — the interactor finds the reader on its owner, or creates one
-automatically at Begin Play.
+reader yourself — the interactor reuses one on its owner if there is one, and creates one
+if there is not.
 
-## How a read plays out
+## Wiring it to a character
 
-Internally the reader moves through four phases:
+<Steps>
+<Step title="Add the component">
+Open your character Blueprint (the first-person or third-person character works fine),
+click **Add Component**, and add **Ink Page Reader**. Leave the defaults for now.
+</Step>
+<Step title="Find something to read">
+Your interaction code needs the page. If it already line-traces, take the **Hit Actor**;
+if it uses an interface or an overlap, take that actor. Any actor carrying an
+[Ink Page Display](/plugins/inkwell/components/page-display) — including a placed
+[Ink Page](/plugins/inkwell/components/page-actor) and an [Ink Page Stack](/plugins/inkwell/components/page-stack) — is
+readable.
+</Step>
+<Step title="Start the read">
+On your interact input: **Branch** on **Is Reading**. False → **Begin Reading Actor**
+with the hit actor. True → **End Reading**. That single toggle is the whole open/close
+loop.
+</Step>
+<Step title="Turn pages">
+Bind your page-turn input to **Next Page** and **Previous Page** on the reader. They do
+nothing unless a page is up, so they are safe to leave bound all the time.
+</Step>
+<Step title="React in the HUD">
+On **Event Begin Play**, bind **On Reading Started** and **On Reading Ended**. Hide the
+crosshair and show a "Q to put back" prompt on the first; restore the HUD on the second.
+</Step>
+<Step title="Play it">
+Walk up to a page and press your interact key. The sheet should float to your eyes over
+about a third of a second, your movement should stop, and the view should freeze. Press
+again and it settles back exactly where it was.
+</Step>
+</Steps>
 
-1. **Idle** — no page held. The component does not tick at all in this state.
-2. **Blend in** — after Begin Reading, the page floats up from its resting spot to the
-   reading pose over **Blend Time** seconds, following a smoothstep curve for a gentle
-   pick-up.
-3. **Reading** — the page is held at the eyes. With **Follow Camera** on, it stays glued
-   to the view each frame; with it off, the component even stops ticking here because
-   nothing is left to move.
-4. **Blend out** — after End Reading, the same smoothstep runs in reverse and the page
-   settles back onto the exact transform it had when reading began. Physics and collision
-   are restored only once it lands.
-
-**Is Reading** (`IsReading`) returns true during blend-in and reading — including while
-the page is still floating up — but not during blend-out. **Get Current Page** returns
-the page being read, or None when nothing is.
-
-The reader ticks only while a read is in flight; it costs nothing while idle.
-
-### Where the page goes
-
-The reading pose is derived from the player's view point every time it is computed:
-
-- A **possessed pawn** reads through its controller's camera
-  (`GetPlayerViewPoint`), so view targets, camera managers, and control rotation are all
-  respected.
-- Anything else — an unpossessed pawn, or a non-pawn owner — falls back to the actor's
-  eyes view point.
-
-From that view point, the page is placed **View Distance** centimetres straight ahead,
-nudged sideways and vertically by **View Offset**, and rotated by the camera rotation
-composed with **Reading Rotation Offset**. Scale is not part of the reading pose — the
-page keeps its own size.
-
-With **Follow Camera** off, the reading target is frozen at the moment the blend starts:
-the page floats up to where the camera was looking right then and stays put.
+<Warning>
+If **Begin Reading Actor** returns false, either the actor has no Ink Page Display
+component on it, or a page is already up — the reader refuses a second read while one is
+being held. Call **End Reading** first, or use the **Is Reading** toggle above.
+</Warning>
 
 ## Properties
 
-All properties live under **Inkwell → Reading** and are editable per instance and
-readable/writable from Blueprint.
+All properties live under **Inkwell → Reading**, are editable per instance, and are
+readable and writable from Blueprint at runtime.
 
 | Property | Type | Default | What it does |
 | --- | --- | --- | --- |
-| **View Distance** (`ViewDistance`) | Float | `45.0` cm | How far in front of the camera the page floats while being read. Clamped to at least 1 cm; the editor slider covers 10–200 cm. |
-| **View Offset** (`ViewOffset`) | Vector 2D | `(0.0, -2.0)` cm | Nudges the reading page on screen: X moves it right, Y moves it up. The default drops it 2 cm below centre. |
-| **Reading Rotation Offset** (`ReadingRotationOffset`) | Rotator | Pitch `0`, Yaw `90`, Roll `90` (degrees) | Extra rotation composed onto the camera rotation so the sheet's printed face points at the viewer with the text upright. The default is tuned for the Inkwell page sheet (a flat plane whose text faces up) — it equals facing the camera, then spinning the sheet 90 degrees in its own plane. Override it if you read from your own mesh. |
-| **Blend Time** (`BlendTime`) | Float | `0.3` s | How long the page takes to float up to the eyes and back. `0` snaps instantly, in both directions. The editor slider covers 0–2 s. |
-| **Follow Camera** (`bFollowCamera`) | Bool | `true` | Keep the page glued to the view while reading, so it stays centred as the player looks around. Off: the page floats to where the camera was looking when reading began and stays there. |
-| **Lock Movement While Reading** (`bLockMovementWhileReading`) | Bool | `true` | Stop the reading pawn's movement while a page is held up: move input is ignored and characters cannot jump. See [Input locks](#input-locks). |
-| **Lock Look While Reading** (`bLockLookWhileReading`) | Bool | `true` | Freeze the camera while a page is held up: look input is ignored so the view cannot rotate while the page is being inspected. See [Input locks](#input-locks). |
+| **View Distance** (`ViewDistance`) | Float | `45.0` | How far in front of the camera the page floats, in centimeters. Clamped to at least 1; the slider covers 10–200. |
+| **View Offset** (`ViewOffset`) | Vector 2D | `(0.0, -2.0)` | Nudges the page on screen, in centimeters: **X** moves it right, **Y** moves it up. The default drops it 2 cm below center. |
+| **Reading Rotation Offset** (`ReadingRotationOffset`) | Rotator | Pitch `0`, Yaw `90`, Roll `90` | Extra rotation composed onto the camera rotation so the sheet's printed face points at the viewer with the text upright. Tuned for the Inkwell page sheet. See [Customizing the reading pose](#customizing-the-reading-pose). |
+| **Blend Time** (`BlendTime`) | Float | `0.3` | Seconds the page takes to float up and back. `0` snaps instantly, both ways. The slider covers 0–2. |
+| **Follow Camera** (`bFollowCamera`) | Boolean | `true` | Keep the page glued to the view, so it stays centered as the player looks around. Off: the page floats to where the camera was pointing when the read began, and stays there. |
+| **Lock Movement While Reading** (`bLockMovementWhileReading`) | Boolean | `true` | Stop the reading pawn from moving while a page is up — including jumping. See [The locks](#the-locks). |
+| **Lock Look While Reading** (`bLockLookWhileReading`) | Boolean | `true` | Freeze the camera while a page is up, so the view cannot rotate while the page is being inspected. See [The locks](#the-locks). |
+
+## How a read plays out
+
+The reader moves through four phases:
+
+1. **Idle** — nothing held. The component does not tick at all.
+2. **Blend in** — the page floats from where it lay to the reading pose over **Blend
+   Time** seconds, on a smoothstep curve so the pick-up eases in and out.
+3. **Reading** — held at the eyes. With **Follow Camera** on, the pose is recomputed every
+   frame; with it off, the component stops ticking here, because nothing is left to move.
+4. **Blend out** — the same smoothstep in reverse, back onto the exact transform the actor
+   had when the read began. Collision and physics are restored when it lands.
+
+**Is Reading** is true through blend-in and reading — including while the page is still on
+its way up — and false during blend-out. **Get Current Page** returns the page being read,
+or None.
+
+### Where the page goes
+
+The pose is derived from the player's view point:
+
+- A **possessed pawn** reads through its controller's view point, so camera managers, view
+  targets and control rotation are all respected.
+- Anything else — an unpossessed pawn, a non-pawn owner — falls back to the actor's eyes
+  view point.
+
+From there the page is placed **View Distance** centimeters straight ahead, nudged by
+**View Offset** along the camera's right and up axes, and rotated by the camera rotation
+composed with **Reading Rotation Offset**. Scale is never part of the pose: the page keeps
+the physical size its document and **Page Scale** give it.
+
+With **Follow Camera** off, the target is captured once, at the moment the blend starts.
+
+## Customizing the reading pose
+
+The four pose properties are all live: change them from Blueprint mid-read and the next
+frame uses the new values (with **Follow Camera** on). That makes tuning quick — set them
+on the component's Details panel, press Play, read a page, and adjust.
+
+**Making the page bigger or smaller.** The page keeps its authored physical size, so
+apparent size is a function of distance: lower **View Distance** to fill more of the
+screen. The property clamps at 1 cm and its slider starts at 10, so anything below that
+has to be typed in — and a sheet that close is liable to cross the camera's near clip
+plane. If a page needs to be physically larger everywhere — in the world as well as in
+the hand — change [**Page Scale**](/plugins/inkwell/components/page-display#sizing) on the display
+component instead.
+
+**Framing.** **View Offset** is in centimeters at the page, not in screen percent, so its
+effect grows as you reduce **View Distance**. The default `(0, -2)` drops the sheet
+slightly below eye line, which reads as "held in the hands" rather than "pinned to the
+face". Positive **X** shifts it right — useful if your HUD occupies one side.
+
+**Orientation.** `ReadingRotationOffset` is composed onto the camera rotation, so it
+describes the sheet's orientation *relative to the view*, not to the world. The default —
+Pitch 0, Yaw 90, Roll 90 — is tuned for the Inkwell page sheet, a flat plane whose printed
+face points up: it turns the sheet to face the camera and then spins it in its own plane
+so the writing reads upright.
+
+If you read from your own mesh, tune it like this:
+
+<Steps>
+<Step title="Start from zero">
+Set **Reading Rotation Offset** to `(0, 0, 0)` and read the page once. The sheet is now
+aligned with the camera's own axes, which tells you where its printed face is pointing.
+</Step>
+<Step title="Point the face at the viewer">
+Adjust **Pitch** and **Yaw** in 90-degree steps until you can see the printed side. Both
+turn the sheet's face; which one you need depends on which axis your mesh's face lies on.
+</Step>
+<Step title="Stand the writing upright">
+Adjust **Roll** in 90-degree steps. Roll spins the sheet within its own plane, so it only
+changes which edge is up.
+</Step>
+<Step title="Fix mirrored text">
+Text that reads backwards means you are looking at the back of the sheet. Add 180 degrees
+to whichever of Pitch or Yaw you used in step 2.
+</Step>
+<Step title="Save it">
+Put the final rotator on the reader's defaults. If different props need different offsets,
+set **Reading Rotation Offset** from Blueprint just before calling **Begin Reading**.
+</Step>
+</Steps>
 
 <Tip>
-With **Lock Look While Reading** on (the default), **Follow Camera** rarely matters in
-practice — the camera cannot rotate, so a followed page does not move either. Follow
-Camera earns its keep when you turn the look lock off and want the page to track the view.
+For a "pinned in place" feel — the page stays where the player lifted it and they can look
+around it — turn **Follow Camera** off and **Lock Look While Reading** off together. With
+the look lock on (the default) the camera cannot rotate anyway, so Follow Camera makes
+little visible difference.
 </Tip>
 
-## Input locks
+## The locks
 
-The reader has **two independent input locks**, both on by default. They engage the
-moment Begin Reading succeeds and release the moment **End Reading** is called — *not*
-when the page finishes floating down — so control returns instantly when the player lets
-go.
+The reader has **two independent input locks**, both on by default. They engage the moment
+**Begin Reading** succeeds and release the moment **End Reading** is called — *not* when
+the page finishes floating down — so control comes back instantly when the player lets go.
 
-**Lock Movement While Reading:**
+### Lock Movement While Reading
 
 - Move input on the controller is ignored (`SetIgnoreMoveInput`).
-- The pawn's current motion is stopped immediately — unless it is falling. An airborne
+- The pawn's current motion is stopped immediately — **unless it is falling**. An airborne
   pawn is left alone, because zeroing velocity mid-jump would freeze it in the air.
-- For characters, jumping is closed off separately: ignoring move input does not stop
-  `Jump`, so the reader also disables the character movement component's jump permission
-  (`NavAgentProps.bCanJump`), calls Stop Jumping, and restores the saved permission on
-  unlock.
+- **Jumping is covered too.** Ignoring move input does not stop a character from jumping,
+  so for an `ACharacter` the reader also calls **Stop Jumping** and clears the character
+  movement component's own jump permission (`NavAgentProps.bCanJump`), restoring the saved
+  value on unlock. This is the part most hand-rolled "freeze the player" code misses.
 
-**Lock Look While Reading:**
+### Lock Look While Reading
 
-- Look input on the controller is ignored (`SetIgnoreLookInput`), so the camera cannot
-  rotate while a page is up.
+- Look input on the controller is ignored (`SetIgnoreLookInput`), so the view cannot rotate
+  while the page is being inspected. Combined with **Follow Camera**, the page stays
+  perfectly still in front of the reader.
 
-Both locks are careful citizens of the engine's stacking input-ignore counters:
+### How the locks behave around the engine
+
+The engine's ignore-input counters stack, so the reader is careful with them:
 
 - Each lock is taken **at most once per read**, and the reader remembers exactly which
-  controller it locked so exactly that one is unlocked.
-- If possession changes or resets mid-read (a client restart zeroes a controller's ignore
-  counters), the reader re-asserts the locks from its tick while a page is up. This is
-  best effort: with Follow Camera off, the tick sleeps during the reading phase, so
+  controller it locked, so exactly that one is released.
+- If possession arrives or resets mid-read — a client restart zeroes a controller's ignore
+  counters — the reader re-asserts both locks from its tick while a page is up. Best
+  effort: with **Follow Camera** off the tick sleeps during the reading phase, so
   re-assertion cannot run there.
-- On unlock, a pawn-mounted reader whose controller has meanwhile possessed a *different*
-  pawn does not decrement the ignore counters — the engine already reset them on
-  repossession, and decrementing would steal another system's lock. (A reader on a
-  controller always releases: its lock belongs to that controller whatever it possesses.)
-- The character's jump permission is restored only if it is still disabled; an outside
-  system that re-enabled jumping mid-read keeps its change.
+- On release, a pawn-mounted reader whose controller has meanwhile possessed a *different*
+  pawn does not decrement the counters: the engine already reset them on repossession, and
+  decrementing would steal another system's lock. A reader living on a controller always
+  releases.
+- The character's jump permission is restored only if it is still disabled, so an outside
+  system that deliberately re-enabled jumping mid-read keeps its change.
 
 <Note>
-If your project drives its own game-state machine (an "in menu / in cutscene / reading"
-mode), you can turn both locks off and manage input yourself — the reader broadcasts
-**On Reading Started** and **On Reading Ended** at exactly the right moments to hook into.
+If your project runs its own input-state machine ("in menu", "in cutscene", "reading"),
+turn both locks off and manage input yourself. **On Reading Started** and **On Reading
+Ended** fire at exactly the right moments to drive it.
 </Note>
 
 ## Physics and collision capture
 
-When reading begins, the reader captures everything needed to put the page back exactly
-as it was:
+When a read begins the reader captures everything needed to put the page back exactly as
+it was:
 
-- The page actor's **full transform** is saved — this is the blend-back destination.
-- Any primitive components that are **simulating physics** (for example, a loose sheet
-  the player can knock off a desk) get simulation switched off for the ride to the eyes —
-  a simulating body ignores actor moves. Each such primitive is re-attached to the
-  actor's root so it follows the actor transform while held.
-- The actor's **collision** is disabled (with its previous state saved), so nothing line
-  traces against, or bumps into, a page held at the reader's face.
+- The page actor's **full transform** is saved. That is the blend-back destination.
+- Every primitive on the actor that is **simulating physics** — a loose sheet the player
+  can knock off a desk — has simulation switched off for the ride, because a simulating
+  body ignores actor moves. Each one is re-attached to the actor's root so it follows the
+  actor while held.
+- The actor's **collision is disabled**, with its previous state saved, so nothing traces
+  against or bumps into a page held at the reader's face. (This is also why a page's own
+  blocking collision — see [Ink Page actor](/plugins/inkwell/components/page-actor#collision) — is not a
+  problem while reading.)
 
-When the page lands (or is released instantly), the reverse happens: the actor is snapped
-onto its saved transform (with physics-safe teleporting), collision is restored to its
-saved state, and simulation is switched back on for every primitive that had it. Turning
-simulation back on re-detaches those meshes from the actor root — that is standard engine
-behavior for simulating primitives, and exactly the state they were in before reading
-began.
+On landing, the reverse: the actor is teleported onto its saved transform, collision is
+restored to the saved state, and simulation is switched back on for every primitive that
+had it. Re-enabling simulation re-detaches those meshes from the actor root, which is
+standard engine behavior and exactly the state they were in before.
 
 ## Events
 
 | Event | When it fires | Payload |
 | --- | --- | --- |
-| **On Reading Started** (`OnReadingStarted`) | A page starts being read (Begin Reading succeeded). Hide crosshairs, show a "close" prompt, play a paper rustle. | `Page` — the Ink Page Display being read. |
-| **On Reading Ended** (`OnReadingEnded`) | The page is put back down — End Reading was called, the page actor was destroyed mid-read, or the reader itself was torn down. Restore your HUD here. | `Page` — the display component that was being read. **Can be None** if the page actor was destroyed while it was being read, so listeners must tolerate a None page. |
+| **On Reading Started** (`OnReadingStarted`) | A page starts being read (Begin Reading succeeded). Hide the crosshair, show a close prompt, play a paper rustle. | **Page** — the Ink Page Display being read. |
+| **On Reading Ended** (`OnReadingEnded`) | The page is put back down: End Reading was called, the page actor was destroyed mid-read, or the reader itself was torn down. Restore your HUD here. | **Page** — the display that was being read. **Can be None** when the page actor was destroyed while it was up, so listeners must tolerate it. |
 
 ## Blueprint API
 
-| Function | Returns | What it does |
+| Node | Returns | What it does |
 | --- | --- | --- |
-| **Begin Reading** (`BeginReading`) | Bool | Floats the given Ink Page Display's actor up in front of the camera. Returns false if the page is invalid or something is already being read (blend-in or reading phase). Calling it while a previous page is still floating back down is fine — the new read takes over cleanly (see below). |
-| **Begin Reading Actor** (`BeginReadingActor`) | Bool | Same as Begin Reading, but finds the Ink Page Display component on the given actor for you. |
-| **End Reading** (`EndReading`) | — | Puts the page back down: it blends back to exactly where it was before reading. Does nothing when nothing is being read. Both input locks release immediately. |
-| **Is Reading** (`IsReading`) | Bool | True while a page is held up for reading, including while it is still floating up. False during the float back down. |
-| **Get Current Page** (`GetCurrentPage`) | Ink Page Display | The page currently being read, or None when nothing is. |
-| **Next Page** (`NextPage`) | Bool | Turns the page being read to its next page (forwards to the display component's Next Page). Returns false when not reading or already on the last page — unless the display's **Loop Pages** is on, which wraps to the first page instead. |
-| **Previous Page** (`PreviousPage`) | Bool | Turns the page being read to its previous page. Returns false when not reading or already on the first page — unless the display's **Loop Pages** is on, which wraps to the last page instead. |
+| **Begin Reading** | Boolean | Floats the given Ink Page Display's actor up in front of the camera. False when the page is invalid or something is already being read. |
+| **Begin Reading Actor** | Boolean | The same, but finds the Ink Page Display on the given actor for you. |
+| **End Reading** | — | Puts the page back down; it blends back to exactly where it was. Does nothing when nothing is being read. Both locks release immediately. |
+| **Is Reading** | Boolean | True while a page is held up, including while it is still floating up. False during the float back down. |
+| **Get Current Page** | Ink Page Display | The page being read, or None. |
+| **Next Page** | Boolean | Turns the page being read forward (forwards to the display's **Next Page**). False when not reading, or on the last page with **Loop Pages** off. |
+| **Previous Page** | Boolean | Turns it back. False when not reading, or on the first page with **Loop Pages** off. |
 
-### Re-reading while a page is floating back
+<Tip>
+[Ink Page Stack](/plugins/inkwell/components/page-stack) is itself an Ink Page Display, so **Begin Reading
+Actor** on a journal lifts the whole pile — thickness, fan and all — and **Next Page**
+animates its page turns while it is up.
+</Tip>
 
-Begin Reading during a blend-out is handled cleanly:
+### Starting a read while a page is floating back
 
-- **Same page** still floating back — the blend simply reverses direction from wherever
-  the page currently is. The original resting transform and physics state stay as
-  captured, so it will still land home correctly later.
-- **A different page** still floating back — the old page is put home instantly, then the
+Calling **Begin Reading** during a blend-out is handled for you:
+
+- **The same page**, still on its way down: the blend reverses from wherever the page
+  currently is. The original resting transform and physics state stay as captured, so it
+  still lands home correctly later.
+- **A different page**, still on its way down: the old one is put home instantly, then the
   new read starts from scratch.
 
-While a page is actively held up (blend-in or reading), Begin Reading refuses and returns
-false — call End Reading first.
+While a page is actively up (blend-in or reading), **Begin Reading** refuses and returns
+false. Call **End Reading** first.
 
-## Edge cases the reader handles for you
+## Edge cases the reader handles
 
 <AccordionGroup>
 <Accordion title="The page actor is destroyed mid-read">
-If the held actor disappears while it is up — destroyed by gameplay, or its level streamed
-out — the reader lets go gracefully on its next tick: it releases the input locks, clears
-all captured state (there is nothing left to snap home), and broadcasts
-**On Reading Ended**. The event's `Page` parameter may legitimately be None here, so
-HUD listeners must handle a None page. A verbose `LogInkwell` message notes that the page
-actor disappeared.
+If the held actor disappears — destroyed by gameplay, or its level streamed out — the
+reader lets go on its next tick: locks released, captured state cleared (there is nothing
+left to snap home), and **On Reading Ended** broadcast. The event's **Page** may
+legitimately be None here, so HUD listeners must handle that. A verbose `LogInkwell`
+message records it.
 </Accordion>
 
-<Accordion title="The reader component is torn down mid-read">
-On End Play — the player pawn is destroyed, the level changes — the reader never leaves a
-page floating in the air with its physics off. It snaps the page home instantly, restores
-physics and collision, releases the locks, and broadcasts **On Reading Ended**.
-
-From that moment until the next Begin Play, the reader also **refuses new reads**: an
-On Reading Ended listener that reacted to the teardown by starting a new read would
-otherwise take input locks and page state that could never be released.
+<Accordion title="The reader is torn down mid-read">
+On End Play — the pawn is destroyed, the level changes — the reader never leaves a page
+floating in the air with its physics off. It snaps the page home, restores collision and
+physics, releases the locks and broadcasts **On Reading Ended**. From then until the next
+Begin Play it also **refuses new reads**, so an On Reading Ended listener that reacts by
+starting another read cannot take state that could never be released.
 </Accordion>
 
 <Accordion title="Blend Time is 0">
-The page snaps straight to the eyes on Begin Reading and straight home on End Reading —
-no blend phases, but the same capture/restore and the same events.
+The page snaps straight to the eyes on Begin Reading and straight home on End Reading. No
+blend phases, but the same capture, restore and events.
 </Accordion>
 
-<Accordion title="Restore is idempotent">
+<Accordion title="Restoring twice">
 Every teardown path funnels through one restore routine, and unlocking is safe to call
-when nothing is locked — you cannot double-release or leak a lock by hitting several edge
+when nothing is locked. You cannot double-release or leak a lock by hitting several edge
 cases at once.
 </Accordion>
 </AccordionGroup>
 
-## Wiring it up
+## Next
 
-A minimal Blueprint hookup, without the demo interactor:
-
-<Steps>
-<Step title="Add the component">
-Add **Ink Page Reader** to your player pawn (or player controller).
-</Step>
-<Step title="Start a read">
-From your interaction logic, call **Begin Reading Actor** with the actor the player wants
-to read (or **Begin Reading** with its Ink Page Display component directly).
-</Step>
-<Step title="Turn pages">
-While Is Reading is true, route your page-turn input to **Next Page** / **Previous Page**.
-</Step>
-<Step title="Put it back">
-Call **End Reading**. Movement and look control return immediately; the page floats back
-to its resting spot.
-</Step>
-<Step title="React in your UI">
-Bind **On Reading Started** / **On Reading Ended** to hide and restore your HUD. Remember
-On Reading Ended can deliver a None page.
-</Step>
-</Steps>
-
-For a ready-made version of steps 2–4 — line trace, focus prompt events, and demo keys —
-see the [Ink Page Interactor](/plugins/inkwell/components/interactor). For integrating with your own
-interaction system, see the [integration guide](/plugins/inkwell/guides/integration).
+<CardGroup cols={2}>
+  <Card title="Ink Page Interactor" icon="hand-pointer" href="/plugins/inkwell/components/interactor">
+    The reference focus trace, prompt event and demo keys that drive this component.
+  </Card>
+  <Card title="Integration guide" icon="plug" href="/plugins/inkwell/guides/integration">
+    Driving the reader from an interaction system you already have.
+  </Card>
+  <Card title="Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
+    Reading a whole journal instead of a single sheet.
+  </Card>
+</CardGroup>

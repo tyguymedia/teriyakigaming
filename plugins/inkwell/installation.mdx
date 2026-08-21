@@ -1,146 +1,175 @@
 ---
 title: "Installation"
-description: "Installing Inkwell from Fab, enabling it per project, and what ships in the plugin"
+description: "Installing Inkwell from Fab, enabling it, checking it worked, and the settings that matter on day one"
 icon: "download"
 ---
 
-Inkwell is a self-contained code-plus-content plugin for Unreal Engine 5.7. It depends
-only on engine modules — no other plugins, no third-party libraries — so installing it
-never pulls anything else into your project.
+Inkwell is a self-contained code-plus-content plugin for **Unreal Engine 5.7**. Its runtime
+module depends only on engine modules — no other plugins, no third-party libraries — so
+installing it never pulls anything else into your project.
 
-## Installing from Fab
+## Install from Fab
 
-After acquiring Inkwell on Fab, install it to your engine through the Epic Games
-Launcher (your Fab library → install to the engine version your project uses), then
-launch the editor.
+1. Acquire Inkwell on Fab.
+2. Open the **Epic Games Launcher → Library**, find Inkwell in your Fab library, and choose
+   **Install to Engine**, picking the engine version your project uses.
+3. Restart the Unreal Editor if it was open. The plugin is now installed for every project
+   on that engine version.
 
-Alternatively, you can use Inkwell as a **project plugin**: copy the `Inkwell` plugin
-folder into your project's `Plugins/` directory and restart the editor. This is handy
-for teams that vendor plugins in source control, and it is how the
-[demo project](https://github.com/tyguymedia/Inkwell) ships it.
+<Accordion title="Installing it as a project plugin instead">
+Copy the `Inkwell` folder into your project's `Plugins/` directory (create it if it does
+not exist) so the structure reads `YourProject/Plugins/Inkwell/Inkwell.uplugin`, then
+restart the editor. This is what teams that vendor their plugins in source control do, and
+it is how the demo project ships it.
 
-## Enabling the plugin
+A project plugin installed from source has no prebuilt binaries — see
+[C++ and Blueprint-only projects](#c-and-blueprint-only-projects) below.
+</Accordion>
 
-The plugin declares `EnabledByDefault`, so in most setups it is active as soon as it is
-installed. To check or change this per project, open **Edit → Plugins**, find **Inkwell**
-under the *Content* category, toggle it, and restart the editor when prompted.
+## Enable it
 
-You'll know it's active when:
+The plugin declares `EnabledByDefault`, so in most setups it is already active after
+installation. To check, or to turn it off for one project:
 
-- a **Page Editor** dropdown button appears in the Level Editor toolbar,
-- **Tools → Inkwell** appears in the main menu, and
-- **Inkwell → Page Document** appears in the Content Browser's right-click *new asset*
-  menu.
+**Edit → Plugins**, search for *Inkwell*, and look under the **Content** category. Toggle
+the checkbox and restart the editor when prompted.
 
-<Tip>
-If your toolbar is crowded, you can hide the toolbar button with **Project Settings →
-Plugins → Inkwell → Show Toolbar Button** (takes effect after an editor restart). The
-Page Editor stays reachable by double-clicking a Page Document, from **Tools → Inkwell**,
-and via the `Inkwell.OpenPageEditor` console command.
-</Tip>
+## C++ and Blueprint-only projects
 
-## What's inside the plugin
+Everything in the runtime module is Blueprint-callable — components, the page actor, the
+UMG widget, the document API, even the settings accessors. A Blueprint-only project can use
+100% of Inkwell without writing a line of C++ and without being converted to a C++ project.
 
-| Module | Type | Loading phase | Contents |
-|---|---|---|---|
-| `Inkwell` | Runtime | `PreDefault` | Everything your game uses: the Ink Page Document asset class, the display/stack/reader/interactor components, the Ink Page actor, the UMG page widget, the bake pipeline, and the project settings. Ships in packaged builds. |
-| `InkwellEditor` | Editor | `Default` | The WYSIWYG Page Editor window, the Page Document asset definition and factory, the Content Browser / toolbar / Tools-menu integration, and the font import tooling. Automatically stripped from packaged builds. |
+| How you installed it | What a Blueprint-only project needs |
+|---|---|
+| Fab install to the engine | Nothing. The install carries prebuilt binaries for that engine version. |
+| Copied into `Plugins/` as source | A C++ toolchain (Visual Studio on Windows, Xcode on macOS). The editor offers to build the missing modules on first open; without a compiler it cannot, and will refuse to load the project. |
 
-The runtime module's only dependencies are engine modules (`Core`, `CoreUObject`,
-`Engine`, `InputCore`, `Slate`, `SlateCore`, `UMG`, `DeveloperSettings`, plus private
-`RenderCore` and `RHI`), which is what "zero project dependencies" means in practice.
+Adding Inkwell does not force a project to become a C++ project either way — the plugin
+compiles as a plugin, not as project code.
 
-The plugin also contains content (`CanContainContent`), mounted at `/Inkwell/`: the page
-materials, the 100 cm page sheet mesh, paper and blank-ink textures, five bundled font
-families, and the example content under `/Inkwell/Examples/`. Enable **Show Plugin
-Content** in the Content Browser to browse it under **Plugins → Inkwell Content**.
+## Where the plugin content lives
 
-## Project Settings → Inkwell at a glance
+The plugin ships content mounted at **`/Inkwell/`**. To see it in the Content Browser,
+enable **Settings → Show Plugin Content**; it then appears under **Plugins → Inkwell
+Content**.
 
-Everything the plugin loads resolves through **Project Settings → Plugins → Inkwell**
-(`UInkwellSettings`), so a project can repoint any asset — its own ink material, its own
-paper texture, its own default font — without touching code. Inkwell never hard codes a
-content path. Settings are `defaultconfig` (config `Game`), so changes are written to
-your project's `Config/DefaultGame.ini` and travel with source control.
+| Path | What is in it |
+|---|---|
+| `/Inkwell/Fonts/` | Five open-licensed composite font families — Courier Prime, Crimson Text, Great Vibes, Kalam, Patrick Hand — with their font faces under `Fonts/Faces/`. |
+| `/Inkwell/Materials/` | `M_PageInk` and its instance `MI_PageInk` (the page material used in game), and `M_PageComposite_Preview` (the unlit twin the Page Editor previews through). |
+| `/Inkwell/Meshes/` | `SM_PageSheet`, a 100 cm page plane with clean 0–1 UVs. |
+| `/Inkwell/Textures/` | `T_PaperPlain` (the fallback paper) and `T_InkNone` (the transparent "no ink yet" texture). |
+| `/Inkwell/Examples/` | The journal stack Blueprint `BP_InkwellJournalStack`, the multi-page document `DA_InkwellJournal`, the read-prompt widget `WBP_InkwellReadPrompt`, and the Enhanced Input actions `IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack`. |
+| `/Inkwell/Demo/` | `DA_InkwellSample`, a single-document sample. |
 
-The full reference lives in [Settings](/plugins/inkwell/reference/settings); this is the shape of it:
+Nothing in your project has to reference these paths. Every asset Inkwell loads resolves
+through project settings, so any of them can be repointed at your own content.
 
-### Materials
+## Check that it worked
 
-| Setting | Default | What it does |
+Four things should be true after enabling the plugin and restarting:
+
+<Steps>
+  <Step title="The toolbar entry">
+    A **Page Editor** dropdown button appears in the Level Editor toolbar. It lists your
+    recent documents and every Page Document in the project, and can create a new one.
+  </Step>
+  <Step title="The Tools menu">
+    **Tools → Inkwell** appears in the main menu, with the same entries — this is the route
+    to use if your project's toolbar is customized or crowded.
+  </Step>
+  <Step title="The asset type">
+    Right-clicking in the Content Browser offers **Inkwell → Page Document**, and creating
+    one gives you an asset that opens in the **Inkwell Page Editor** window on double-click.
+  </Step>
+  <Step title="The plugin content">
+    With **Show Plugin Content** on, **Plugins → Inkwell Content** is browsable and the five
+    font families are in `/Inkwell/Fonts/`.
+  </Step>
+</Steps>
+
+<Accordion title="The toolbar button is missing">
+Either the plugin is not enabled (**Edit → Plugins**, category *Content*), or
+**Project Settings → Plugins → Inkwell → Show Toolbar Button** has been turned off — that
+setting takes effect only after an editor restart.
+
+With the button hidden, the Page Editor is still reachable by double-clicking a Page
+Document, from **Tools → Inkwell**, and from the console command
+`Inkwell.OpenPageEditor <PageDocumentObjectPath>` (with no argument it logs every document
+in the project).
+</Accordion>
+
+## Settings that matter on day one
+
+Everything lives under **Project Settings → Plugins → Inkwell** (`UInkwellSettings`). The
+settings are `defaultconfig`, so changes are written to your project's
+`Config/DefaultGame.ini` and travel with source control. Most of them can be left alone
+forever; these are the ones worth a look before you author your first real document.
+
+| Setting | Default | Why you would change it on day one |
 |---|---|---|
-| Page Ink Material | `/Inkwell/Materials/MI_PageInk` | Base material used to display baked pages on meshes. Must expose the parameters named under *Material Parameters*. Repoint it to use your own page material (for example a lit parchment shader). |
-| Page Preview Material | `/Inkwell/Materials/M_PageComposite_Preview` | Unlit twin used only by the Page Editor's live preview, so the editor shows the exact multiply the game does. Unset, the editor falls back to a paper + ink alpha stack. |
+| **Default Page Font** | `/Engine/EngineFonts/Roboto` | The font every unstyled run renders in. Out of the box that is Roboto, which reads like UI text. Point it at one of the bundled families — for example `/Inkwell/Fonts/Font_CrimsonText` — to set the project-wide look of every document in one place. |
+| **Font Search Paths** | `/Inkwell/Fonts`, `/Game` | The content paths scanned for composite fonts to list in the Page Editor's font picker. Every font found is loaded to read its typeface names, so on a large project narrow `/Game` to the folder your fonts actually live in — otherwise the window hitches when it opens. |
+| **Font Build Output Path** | `/Game/Fonts` | Where [font import](/plugins/inkwell/authoring/fonts) writes the composite fonts it generates. Must be a writable *project* path; plugin content is read-only in a shipped plugin install. |
+| **New Document Page Size Pixels** | `1024 × 1400` | The pixel size — and therefore the shape — of every Page Document you create from now on. Set it once if your project's paper is not portrait A4. |
+| **Default Paper Texture** | `/Inkwell/Textures/T_PaperPlain` | The paper a document falls back to when it does not specify one. Repoint it at your own stock and every new document starts on your paper. |
+| **Max Page Bake Dimension** | `4096` (clamped 64–8192) | Safety clamp on bake resolution per axis. A document asking for more is clamped rather than allocating a render target of hundreds of megabytes. Raise it only if you genuinely author pages larger than 4K. |
+| **Show Toolbar Button** | `true` | Turn off if your Level Editor toolbar is crowded. Takes effect after an editor restart. |
 
-### Material Parameters (advanced)
-
-The parameter names Inkwell drives on your page material. Defaults match the bundled
-material: `InkTexture`, `PaperTexture`, `UsePaperTexture`, `PaperTint`, `InkTint`,
-`InkStrength`. Change these only if your own material names them differently.
-
-### Content
-
-| Setting | Default | What it does |
-|---|---|---|
-| Page Sheet Mesh | `/Inkwell/Meshes/SM_PageSheet` | Default mesh for page sheets. Must have clean 0–1 UVs across the page face — atlas-mapped prop meshes garble page content. |
-| Default Paper Texture | `/Inkwell/Textures/T_PaperPlain` | Paper albedo used when a Page Document does not specify one of its own. |
-| Blank Ink Texture | `/Inkwell/Textures/T_InkNone` | Fully transparent texture assigned to sheets with no content yet, so a bare sheet renders as blank paper. |
-| Default Page Font | `/Engine/EngineFonts/Roboto` | Font used by documents whose own Default Font is unset. Point it at one of the bundled fonts (for example `/Inkwell/Fonts/Font_CrimsonText`) to change the project-wide look of every unstyled run in one place. |
-
-### Fonts
-
-| Setting | Default | What it does |
-|---|---|---|
-| Font Search Paths | `/Inkwell/Fonts`, `/Game` | Content paths scanned for composite fonts to list in the Page Editor's font picker. Keep the list tight on large projects — every font found is loaded to read its typeface names. |
-| Include Engine Fonts | `true` | Also list the engine's built-in fonts (Roboto) in the picker; they always sort last. |
-| Font Build Output Path | `/Game/Fonts` | Where font import writes the composite font assets it generates. Must be a writable *project* path — plugin content is read-only in a shipped plugin install. |
-
-### Rendering
-
-| Setting | Default | What it does |
-|---|---|---|
-| Max Page Bake Dimension | `4096` (clamped 64–8192) | Safety clamp on page bake resolution, per axis. A document asking for more is clamped rather than allocating a render target of hundreds of megabytes. |
-| New Document Page Size Pixels | `1024 × 1400` | Page size assigned to newly created Page Documents. |
-
-### Editor
-
-| Setting | Default | What it does |
-|---|---|---|
-| Show Toolbar Button | `true` | Show the Inkwell button in the Level Editor toolbar. Takes effect after an editor restart. |
+Two more you will not touch on day one but should know exist: **Page Ink Material** and
+**Page Sheet Mesh**. Repointing the first lets you draw pages with your own material (a lit
+parchment shader, say) as long as it exposes the parameters listed under *Material
+Parameters*; the second swaps the default sheet mesh. The full table of every setting is in
+the [settings reference](/plugins/inkwell/reference/settings).
 
 <Note>
 If a required setting is cleared or its asset fails to load, Inkwell logs one warning per
-session naming the exact setting to fix (for example *"Set 'Project Settings > Plugins >
-Inkwell > Page Ink Material'"*) rather than failing silently.
+session naming the exact setting to fix — for example *"Set 'Project Settings > Plugins >
+Inkwell > Page Ink Material'"* — rather than failing silently.
 </Note>
 
-## Packaging considerations
+## Before you package
 
-Inkwell is built to package cleanly, but a few mechanics are worth knowing:
+<AccordionGroup>
+  <Accordion title="The authoring tools strip themselves">
+    Inkwell ships two modules. `Inkwell` is a Runtime module loaded at `PreDefault` and
+    contains everything the game needs, baking included. `InkwellEditor` is an Editor
+    module — the Page Editor window, the asset definition and factory, the menus and the
+    font import tooling — and is never included in a packaged build.
+  </Accordion>
+  <Accordion title="Fonts cook through Font References">
+    Rich-text markup stores fonts as string paths, which the cooker cannot see. Each Page
+    Document carries a **Font References** array of hard references, rebuilt by the Page
+    Editor's **Save Document** button. You never edit it by hand — but do save documents
+    from that button, and do not delete the array.
+  </Accordion>
+  <Accordion title="Assets you repoint in settings">
+    The setting defaults live in plugin content and cook with it. If you point a setting at
+    a project asset that nothing else references, confirm it is included in the cook — for
+    example through *Additional Asset Directories to Cook*.
+  </Accordion>
+  <Accordion title="Demo input is real input">
+    The Ink Page Interactor's **Enable Default Input** bindings are ordinary runtime key
+    bindings, not an editor convenience. Turn the option off once you bind your own input,
+    or **E**, **Q**, the left and right arrow keys and the mouse wheel stay live in the
+    shipped game.
+  </Accordion>
+</AccordionGroup>
 
-- **The editor module strips itself.** `InkwellEditor` is an Editor-type module, so
-  authoring tools never end up in a shipping build. Everything the game needs — baking
-  included — lives in the Runtime module.
-- **Fonts are cooked via `FontReferences`.** Rich-text markup stores fonts as *string
-  paths*, which the cooker cannot see. Each Page Document therefore carries a
-  **Font References** array of hard references, maintained automatically by the Page
-  Editor on save — without it, fonts used only by styled runs would be cooked out and
-  every styled run would fall back to the default font in a packaged build. You don't
-  need to touch it; just don't delete it.
-- **Runtime-built documents referencing fonts by path.** If you build markup at runtime
-  (see [Runtime documents](/plugins/inkwell/guides/runtime-documents)) with fonts that no cooked asset
-  hard-references, make sure those fonts are otherwise referenced or added to your
-  cook — the string path alone will not pull them in.
-- **Settings assets are soft references.** The defaults live in plugin content and cook
-  with it. If you repoint a setting at a project asset that nothing else references,
-  confirm it is included in the cook (for example via *Additional Asset Directories to
-  Cook*).
-- **Pages bake at runtime.** Baked ink render targets are produced in game via a
-  per-world cache (Game and PIE worlds), keyed so edited documents regenerate cleanly.
-  **Max Page Bake Dimension** caps the memory a single page can claim. Details in
-  [How rendering works](/plugins/inkwell/reference/rendering).
-- **Demo input stays optional.** The interactor's **Enable Default Input** key bindings
-  are plain runtime bindings, not editor features — remember to turn them off when you
-  ship your own input, or the demo keys stay live in the packaged game.
+## Next
 
-Next: the [Quickstart](/plugins/inkwell/quickstart) takes you from here to reading a page in PIE.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/plugins/inkwell/quickstart">
+    Create a document, write on it, and put a readable note in your own level.
+  </Card>
+  <Card title="Settings reference" icon="sliders" href="/plugins/inkwell/reference/settings">
+    Every entry under Project Settings → Plugins → Inkwell, with real defaults.
+  </Card>
+  <Card title="Fonts" icon="font" href="/plugins/inkwell/authoring/fonts">
+    The five bundled families, and importing a folder of TTFs as a family of your own.
+  </Card>
+  <Card title="Example content" icon="box-open" href="/plugins/inkwell/guides/examples">
+    What ships in /Inkwell/Examples/ and how each piece is wired.
+  </Card>
+</CardGroup>

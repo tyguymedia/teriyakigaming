@@ -1,0 +1,325 @@
+---
+title: "Layers"
+description: "Every page is a back-to-front stack of text, image, and drawing layers — the model, the Layers panel, and the Blueprint API."
+icon: "clone"
+---
+
+A page in an **Ink Page Document** (`UInkPageDocument`) is not "some text with pictures
+around it". It is an ordered stack of layers, and each layer is one of three things: a body
+of text, a placed image, or a set of brush strokes. Where the text sits in that stack is
+what decides whether an image is a watermark under the writing or a stamp over it.
+
+## The stacking model
+
+A page (`FInkPageSpec`) owns a `Layers` array of `FInkPageLayer`. The bake walks that array
+in order and draws each layer over the one before it:
+
+- **Index 0 is the back of the page.** It draws first, and everything else draws on top.
+- **The last entry is the front.** It draws last, over everything.
+
+<Warning>
+The **Layers** panel lists layers **front to back** — its header literally reads
+*Layers (front to back)* — which is the **reverse of the array order**. The top row in the
+panel is the last element of `Layers`; the bottom row is index 0. This is the single most
+confusing thing about the feature, and it is deliberate: the list reads like the page looks
+from above. Only remember the inversion when you write Blueprint against the array. In the
+panel, "up" always means "closer to the front".
+</Warning>
+
+Everything else follows from that one rule. Move a layer up the panel and it moves later in
+the array. **Bring Forward** is `Delta = +1`. **Send Backward** is `Delta = -1`.
+
+## Layer types
+
+| Type (`EInkLayerType`) | Payload | What it draws |
+|---|---|---|
+| **Text** | `FInkPageText Text` | One independent text box: its own markup, its own justification, its own position and size. |
+| **Image** | `FInkPageImage Image` | One `UTexture2D` placed in normalized page coordinates, with rotation and its own opacity. |
+| **Drawing** | `FInkDrawing Drawing` | An ordered list of `FInkStroke`, oldest first — see [Drawing](/plugins/inkwell/authoring/drawing). |
+
+A layer struct carries all three payloads; only the one matching `Type` is drawn. That is
+what makes changing a layer's type harmless: nothing is thrown away.
+
+### Text layers
+
+Text is a layer payload, not a page property. A page can carry a heading, a body, and a
+signature as three separate text layers, with images or drawings stacked between them.
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| `Markup` | `FString` | empty | Rich-text markup. Author it in the Page Editor, not by hand. |
+| `Justification` | `ETextJustify` | `Left` | Alignment of **this box** — each text layer aligns on its own. |
+| `Position` | `FVector2D` | `(0, 0)` | Top-left of the box, normalized. Ignored while the box fills the page. |
+| `Size` | `FVector2D` | `(0, 0)` | Normalized box size. **Zero (or negative) on either axis means the layer fills the page inside the document's `MarginsPx`.** |
+
+<Note>
+A text layer whose `Size` is zero on either axis fills the page inside the document
+margins (`FInkPageText::FillsPage()`). That is exactly how a page written as one block of
+text behaves, and it is what every page authored before text layers existed becomes. A
+page-filling box wraps with `AutoWrapText` and follows the margins; a placed box wraps at
+its own explicit width. Give a filling box a **Box W** and **Box H** and it turns into a
+placed box you can drag.
+</Note>
+
+### Image layers
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| `Texture` | `UTexture2D*` | `None` | The art. An image layer with no texture still gets a drag box so it can be placed first. |
+| `Position` | `FVector2D` | `(0.1, 0.1)` | Top-left of the image box, normalized (0,0 = page top-left). |
+| `Size` | `FVector2D` | `(0.3, 0.0)` | Normalized width/height. **Height ≤ 0 keeps the texture's aspect ratio.** |
+| `RotationDegrees` | `float` | `0` | Rotation about the image's center. The drag box stays axis-aligned. |
+| `Opacity` | `float` | `1.0` | Multiplied by the layer's own `Opacity`. |
+
+## Per-layer controls
+
+Every layer, whatever its type, has these four:
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| `Name` | `FString` | empty | The label in the Layers list. Blank falls back to a name from the type: *Text*, *Drawing*, or — for an image with art — the texture's asset name, otherwise *Image*. |
+| `bVisible` | `bool` | `true` | Hidden layers are skipped by the editor preview **and by the runtime bake**. |
+| `bLocked` | `bool` | `false` | An authoring aid. See below. |
+| `Opacity` | `float` | `1.0` | Multiplies the whole layer's alpha — text, strokes, and images alike, applied as Slate render opacity. |
+
+### What locked actually prevents
+
+A locked layer **still draws**, on the page and in the bake. Locking is purely about not
+grabbing it by accident. While a layer is locked you cannot:
+
+- select it — clicking its row or its content on the page does nothing;
+- drag it around the page surface;
+- drag its row to a new place in the Layers list;
+- double-click its content on the page to activate it;
+- draw strokes into it (a locked Drawing layer is never a stroke target).
+
+Locking the currently selected layer clears the selection. Nothing about locking survives
+into the game: it changes no pixel.
+
+## The Layers panel
+
+The panel is the bottom half of the Page Editor's right column, under the rendered preview.
+The splitter between them is draggable, so you can squeeze the preview down to a thumbnail
+when the work is in the layers.
+
+<Frame caption="The Layers panel: front-to-back rows, each with an eye, a lock, a name, and a type badge.">
+  <img src="/images/inkwell/page-editor-layers.png" alt="The Inkwell Page Editor Layers panel" />
+</Frame>
+
+<Steps>
+  <Step title="1 — Eye and lock">
+    The eye is visibility: click to hide the layer, and it is skipped by the preview and the
+    bake alike. The closed eye stays lit on an idle row, because a hidden layer is a surprise
+    waiting to happen at bake time. The padlock locks the layer against selection and
+    dragging — it keeps drawing either way, and the lit padlock is what explains why a row
+    refuses to be picked up.
+  </Step>
+  <Step title="2 — Row and name">
+    One row per layer, frontmost at the top; the selected row is highlighted. Drag a row to
+    restack it — an insertion line shows where it will land. Right-click for the row menu.
+    A layer with no name of its own is listed by its type.
+  </Step>
+  <Step title="3 — Type badge">
+    The icon on the right-hand edge of the row says what kind of layer it is: text, image, or
+    drawing. It is a label, not a button — clicking the row still selects the layer. Its
+    tooltip names the kind ("Image layer - a texture placed on the page").
+  </Step>
+  <Step title="4 — Add and reorder">
+    **+ Text**, **+ Image** and **+ Drawing** add a layer in front of the selected one;
+    **Duplicate** and **Delete** act on the selection, and **^** / **v** move it one step
+    towards the front or the back.
+  </Step>
+</Steps>
+
+### Working the panel
+
+<Steps>
+  <Step title="Add a layer">
+    **+ Text**, **+ Image**, or **+ Drawing**. New layers land **in front of the selected
+    layer** (one row above it in the list), and the editor switches to the mode that can edit
+    them: Text mode for a text layer — with the caret already in the new box — Image mode for
+    an image, Draw mode for a drawing.
+
+    A new text layer is created as a placed box at `Position (0.15, 0.15)`, `Size
+    (0.5, 0.25)` — deliberately not page-filling, since a second full-page box would sit
+    invisibly over the first. A new image layer starts at `Position (0.35, 0.35)`,
+    `Size (0.3, 0)`.
+  </Step>
+  <Step title="Select one">
+    Click its row, or double-click the thing itself on the page. Double-clicking selects the
+    layer **and switches to the right mode** — double-click writing and you land in Text mode
+    with the caret in that box; double-click a picture and you land in Image mode ready to
+    drag it. Selecting a layer always pulls the mode with it.
+  </Step>
+  <Step title="Restack by dragging">
+    Drag a row up or down the list. The insertion line shows where it lands, and the whole
+    drag is one undo step ("Reorder Layer"). The **^** and **v** buttons do the same thing one
+    step at a time, towards the front and towards the back respectively.
+  </Step>
+  <Step title="Right-click for the row menu">
+    **Rename** (clear the name and the list goes back to the type-derived fallback),
+    **Duplicate** (payload included; the copy lands directly on top of the original),
+    **Delete**, **Visible** and **Locked** toggles, **Bring Forward**, and **Send Backward**.
+
+    <Frame caption="The row menu, headed by the layer it belongs to.">
+      <img src="/images/inkwell/layer-context-menu.png" alt="The Layers panel row menu: Rename, Duplicate, Delete, Visible, Locked, Bring Forward, Send Backward" />
+    </Frame>
+  </Step>
+  <Step title="Edit the selected layer">
+    Under the buttons, the properties for whatever is selected: **Name** and **Opacity** for
+    every layer, plus the texture picker and **X / Y / Width / Height / Rotation** for an
+    image, the stroke count and **Clear Strokes** for a drawing, and **Box X / Box Y / Box W /
+    Box H** for a text layer.
+  </Step>
+</Steps>
+
+<Frame caption="Image mode: an image layer can be dragged anywhere in its area, not only by a handle.">
+  <img src="/images/inkwell/page-editor-image-mode.png" alt="The page surface in Image mode" />
+</Frame>
+
+Image mode is where image layers get placed: drag any visible, unlocked one by its whole
+area. Text editing is suspended while the mode is on, so a click lands on a layer rather than
+on the caret. Text boxes are moved in **Text** mode, by the strips around the selected box —
+see [the three modes](/plugins/inkwell/authoring/page-editor#the-three-modes). Press **Esc** or click
+**Text** to go back to typing.
+
+<AccordionGroup>
+  <Accordion title="The Delete button is grayed out">
+    A page's **last text layer cannot be deleted** — the page's writing would have nowhere to
+    draw. Add a second text layer first, or delete a different one. The rule is grayed out
+    rather than hidden so it is visible rather than mysterious.
+  </Accordion>
+  <Accordion title="A layer draws in the editor but not in the game">
+    Check the eye. Hidden layers are skipped by the editor preview and by the runtime bake
+    alike, and it is easy to hide one while chasing a stacking problem and forget.
+  </Accordion>
+  <Accordion title="A row will not select, drag, or accept strokes">
+    It is locked. The padlock on the row is lit when it is — click it, or use **Locked** in the
+    right-click menu. Locking changes nothing about how the layer draws, in the editor or in
+    the game.
+  </Accordion>
+</AccordionGroup>
+
+## Two recipes
+
+### A watermark behind the writing
+
+The stamp goes **below** the text layer in the panel — earlier in the array — so the writing
+draws over it.
+
+<Steps>
+  <Step title="Select the text layer">
+    Click its row. New layers land in front of the selection, so this is the anchor.
+  </Step>
+  <Step title="Add the image layer">
+    Click **+ Image**, pick the texture in the layer properties, and drag it into place in
+    Image mode. It is currently in front of the text.
+  </Step>
+  <Step title="Send it behind">
+    Right-click the image row → **Send Backward** (or drag its row below the text row). It is
+    now index-wise earlier than the text, so the writing draws over it.
+  </Step>
+  <Step title="Fade it">
+    Set the layer **Opacity** to something like 0.15. Layer opacity reaches the whole layer,
+    so the image goes translucent while the writing stays solid.
+  </Step>
+</Steps>
+
+### A stamp over the writing
+
+Identical, minus the last two steps: add the image layer while the text layer is selected
+and leave it where it lands — in front. Turn its **Rotation** a few degrees off square so it
+reads as something pressed onto the page rather than composited into it.
+
+### Several independent text boxes
+
+<Steps>
+  <Step title="Write the body">
+    Type into the page's existing text layer. It fills the page inside the margins, so it is
+    the one that behaves like a normal page of writing.
+  </Step>
+  <Step title="Add the heading">
+    **+ Text**, then — in **Text** mode, with the new box selected — drag it to the top of the
+    page by the strips around its outline, and size it with **Box W / Box H**. Type into it
+    directly: a selected text box takes the caret. Set its alignment with the toolbar's
+    justify buttons; justification is per box.
+  </Step>
+  <Step title="Add the signature">
+    **+ Text** again, drag it to the bottom right, set that box to right-aligned, and give it
+    a script font from the toolbar's font picker.
+  </Step>
+  <Step title="Name the rows">
+    Right-click each row → **Rename**: *Heading*, *Body*, *Signature*. Three rows all called
+    "Text" is how a page stops being editable a month later.
+  </Step>
+</Steps>
+
+## Blueprint API
+
+Every function below is on the **Ink Page Document** asset, in the
+**Inkwell | Page Document** category. Layer indices are **array** indices — index 0 is the
+back of the page, not the top row of the panel.
+
+| Node | Returns | What it does |
+|---|---|---|
+| **Get Page Layers** (`PageIndex`) | `Array<Ink Page Layer>` | The page's layers, back to front. Empty array for an out-of-range page. |
+| **Set Page Layers** (`PageIndex`, `Layers`) | `bool` | Replaces the whole stack. False if the page index was out of range. |
+| **Add Page Layer** (`PageIndex`, `Layer`) | `int32` | Appends the layer to the **front** of the page and returns its index. -1 if out of range. |
+| **Remove Page Layer** (`PageIndex`, `LayerIndex`) | `bool` | Removes one layer. False if either index was out of range. |
+| **Move Page Layer** (`PageIndex`, `LayerIndex`, `Delta`) | `int32` | Moves a layer through the stack. Returns the layer's new index, or -1 when nothing moved. |
+| **Find Text Layer Index** (`PageIndex`) | `int32` | Index of the page's **first** Text layer, or -1 when it has none. |
+| **Set Layer Markup** (`PageIndex`, `LayerIndex`, `Markup`) | `bool` | Replaces the text of one specific Text layer. False if the indices are out of range or the layer is not a Text layer. |
+
+<Tip>
+**The delta convention on Move Page Layer: positive is towards the front.** `Delta = 1`
+brings the layer one step forward (one row up the panel), `Delta = -1` sends it one step
+back. The destination is clamped to the array, so a big delta parks the layer at the end
+rather than failing — but a move that changes nothing (already at the end, or `Delta = 0`)
+returns -1, not the current index. Test against -1 before trusting the result.
+</Tip>
+
+Two behaviors worth knowing before you write against these:
+
+- **Set Page Layers repairs what you hand it.** A stack containing no Text layer gets one
+  appended, because a page with nowhere to draw its markup renders blank paper. The same
+  repair runs on **Add Page** and on load.
+- **Set Page Layers, Add Page Layer, Remove Page Layer, and Move Page Layer all bump the
+  document's content revision**, which is what invalidates cached bakes. If you mutate a
+  layer struct you pulled out with **Get Page Layers**, you are working on a copy — write it
+  back with **Set Page Layers** (or call **Bump Revision**) or nothing on screen changes.
+
+### Recipe: add a watermark from Blueprint
+
+1. **Make Ink Page Layer** — set **Type** to `Image`, **Name** to `Watermark`, **Opacity** to `0.15`.
+2. On its **Image** member: set **Texture**, **Position** `(0.2, 0.3)`, **Size** `(0.6, 0.0)`.
+3. **Find Text Layer Index** (`PageIndex`) → store as `TextIndex`.
+4. **Add Page Layer** (`PageIndex`, the new layer) → returns `NewIndex` at the front.
+5. **Move Page Layer** (`PageIndex`, `NewIndex`, `TextIndex - NewIndex`) — a negative delta,
+   which drops the image behind the writing.
+6. **Refresh** on any **Ink Page Display** already showing that page.
+
+<Note>
+**Documents authored before layers existed are converted when they load.** The old
+per-page markup moves onto the page's first Text layer and the old images fold into the
+stack on whichever side of the writing their behind/over flag asked for. There is nothing
+to do, no button to press, and no version number to set — the migration is driven by the
+page's own data and is safe to run repeatedly. Re-save the asset when convenient so the
+converted stack is what ships.
+</Note>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Drawing" icon="paintbrush" href="/plugins/inkwell/authoring/drawing">
+    The five brushes, the eraser, and the stroke data model behind Drawing layers.
+  </Card>
+  <Card title="Paper" icon="newspaper" href="/plugins/inkwell/authoring/paper">
+    What the layers are stacked on: supplied textures and generated stock.
+  </Card>
+  <Card title="Page Editor" icon="pen-nib" href="/plugins/inkwell/authoring/page-editor">
+    The window the Layers panel lives in, and everything else in it.
+  </Card>
+  <Card title="Page Documents" icon="file-lines" href="/plugins/inkwell/authoring/documents">
+    Page geometry, margins, default text style, and the document-level Blueprint API.
+  </Card>
+</CardGroup>

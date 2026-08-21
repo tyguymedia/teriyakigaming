@@ -1,160 +1,285 @@
 ---
 title: "Ink Page Stack"
-description: "Show a multi-page document as a physical pile of paper — one sheet per page, with animated page turns and trace-only collision."
+description: "Show a multi-page document as a physical pile of paper: one sheet per page, with a page turn that arcs the top sheet around to the bottom."
 icon: "layer-group"
 ---
 
-**Ink Page Stack** (`UInkPageStackComponent`) shows a Page Document as a physical stack
-of paper: one sheet mesh per page, the current page on top, the rest fanned untidily
-underneath. Turning a page slides the sheets to their new places in the pile, so a
-multipage journal reads like real paper instead of a texture swap.
+**Ink Page Stack** (`UInkPageStackComponent`) shows an
+[Ink Page Document](/plugins/inkwell/authoring/documents) as a physical stack of paper. It spawns one sheet
+mesh per page, puts the current page on top and squares the rest up underneath in reading
+order. Turning a page lifts the top sheet clear of the pile and arcs it around the edge to
+the bottom, so a multipage journal reads like paper rather than a texture swap.
 
-It is a **drop-in replacement** for [Ink Page Display](/plugins/inkwell/components/page-display), which
-it extends: put it on any actor, assign a document, done. The whole page API —
-**Next Page** / **Previous Page** / **Set Page Index** / **On Page Changed** — and the
-bundled [interactor](/plugins/inkwell/components/interactor) and [reader](/plugins/inkwell/components/reader) work with
-it unchanged. Everything (sheet count, size, fan) updates live in the editor viewport as
-you edit properties.
+It extends [Ink Page Display](/plugins/inkwell/components/page-display) and is a drop-in replacement for it:
+put it on an actor, assign a document, done. The whole page API — **Next Page** /
+**Previous Page** / **Set Page Index** / **On Page Changed** — works unchanged, and both the
+[Ink Page Interactor](/plugins/inkwell/components/interactor) and the [Ink Page Reader](/plugins/inkwell/components/reader)
+treat it exactly like a single page. The two inherited properties that do not apply to a
+pile are called out [below](#properties).
+
+<Frame caption="The journal page stack in the demo level.">
+  <img src="/images/inkwell/journal-stack-in-level.png" alt="A stack of paper sheets on a desk in the demo level" />
+</Frame>
 
 <Tip>
-For a working example, open `/Inkwell/Examples/Blueprints/BP_InkwellJournalStack` — a
-static mesh root plus an Ink Page Stack wired to the sample journal document. Enable
-**Show Plugin Content** in the Content Browser to see it. See the
-[examples tour](/plugins/inkwell/guides/examples).
+There is a working example at `/Inkwell/Examples/Blueprints/BP_InkwellJournalStack`, wired to
+the sample journal document `/Inkwell/Examples/DA_InkwellJournal`. Enable **Show Plugin
+Content** in the Content Browser to see it, and read the [examples tour](/plugins/inkwell/guides/examples).
 </Tip>
+
+## What a physical stack actually is
+
+The pile is **derived state**, rebuilt from the document rather than saved. Concretely:
+
+- One `StaticMeshComponent` per visible page is created at runtime — and for the editor
+  preview — attached to the **actor's root component** and marked transient. The pile is
+  therefore laid out in the root's local space: it stacks along the root's local Z, so place
+  the actor with its Z pointing up out of the table.
+- Sheet count is the page count, capped at **Max Visible Sheets**. With no document, no root
+  component, or no pages, there are **no sheets at all** — unlike the base component, a stack
+  with no document shows nothing rather than a blank sheet.
+- Every sheet is scaled from the 100 cm sheet mesh to the real paper size:
+  [**Get Effective Page Size Cm**](/plugins/inkwell/components/page-display#sizing), which is the document's
+  own size × the inherited **Page Scale**. There is no separate sheet size to disagree with
+  the pages.
+- The sheets are **not obstacles**. See [collision](#collision-focus-targets-not-obstacles).
+
+<Warning>
+Do not attach anything to individual sheets or store references to them. They are created,
+destroyed and re-baked as you turn pages, and they are never saved into the level. Read them
+through **Get Sheets** at the moment you need them.
+</Warning>
 
 ## Properties
 
-All the [Ink Page Display properties](/plugins/inkwell/components/page-display#properties) (**Document**,
-**Page Index**, **Apply On Begin Play**, **Loop Pages**, **Preview In Editor**, …) are
-inherited and work the same. On top of those, the stack adds:
+Everything from [Ink Page Display](/plugins/inkwell/components/page-display#properties) is inherited and
+behaves the same — **Document**, **Page Index**, **Page Scale**, **Apply On Begin Play**,
+**Loop Pages**, **Preview In Editor**. On top of those:
 
 | Property | Type | Default | What it does |
 | --- | --- | --- | --- |
-| **Page Size Cm** | 2D Vector | `21.0 × 29.7` | Sheet size in real-world centimetres (the default is A4). The sheet mesh is a 100 cm plane, so this scales it directly. |
-| **Sheet Gap** | Float | `0.35` | Vertical gap between sheets in the pile, in centimetres. |
-| **Fan Splay** | Float | `1.5` | How far each deeper sheet splays sideways, in centimetres. Alternates left/right per sheet. |
-| **Fan Angle** | Float | `4.0` | How far each deeper sheet twists, in degrees. Alternates clockwise/anticlockwise per sheet. |
+| **Sheet Gap** | Float | `0.35` | Vertical gap between sheets in the pile, in centimeters. The top sheet sits highest. |
+| **Fan Splay** | Float | `0.35` | How far each deeper sheet slides sideways, in centimeters, alternating left/right and growing with depth. The default is small on purpose: a pile someone tidied, not a fan. Turn it up for a messy desk. |
+| **Fan Angle** | Float | `0.8` | How far each deeper sheet twists, in degrees, alternating direction and growing with depth. |
 | **Stack Yaw** | Float | `0.0` | Spins the whole pile about its own normal, in degrees, so the writing reads upright for your actor. |
-| **Stack Offset** | Vector | `(0, 0, 0)` | Where the pile sits relative to the actor's root component, in centimetres. |
-| **Flip Interp Speed** | Float | `8.0` | How quickly sheets glide to their new place in the pile when a page is turned. |
-| **Max Visible Sheets** *(advanced)* | Integer | `16` | Upper bound on how many sheet meshes exist at once (clamped 1–64). Longer documents use a sliding window — see below. |
-| **Sheet Mesh** *(advanced)* | Static Mesh | *None* | Sheet mesh override. Leave unset to use the project's Inkwell page sheet mesh from [Project Settings → Inkwell](/plugins/inkwell/reference/settings). Needs clean 0–1 UVs. |
-| **Sheets Block Traces** *(advanced)* | Boolean | `true` | Give sheets query collision so line-trace interaction (e.g. Ink Page Interactor) can focus the pile. Off = no collision at all. |
-| **Sheet Trace Channel** *(advanced)* | Collision Channel | `Visibility` | The one collision channel the sheets respond to; every other channel is ignored. Match it to your interactor's **Trace Channel**. |
+| **Stack Offset** | Vector | `(0, 0, 0)` | Where the pile sits relative to the actor's root component. |
+| **Flip Interp Speed** | Float | `8.0` | How quickly sheets that are merely shuffling one place up or down the pile glide to their new slot. Not the page turn itself. |
+| **Animate Page Turns** | Boolean | `true` | Fly the turned sheet around the edge of the pile. Off is the cheap presentation: every sheet snaps straight to its slot. |
+| **Page Turn Duration** | Float | `0.45` | Seconds for one page turn, lift-off to landing. Editable only while **Animate Page Turns** is on. |
+| **Page Turn Lift Cm** | Float | `4.0` | How far above the top of the pile the turning sheet rises at the peak of its arc, in centimeters. Editable only while **Animate Page Turns** is on. |
+| **Max Visible Sheets** *(advanced)* | Integer | `16` | Upper bound on how many sheet meshes exist at once, clamped 1–64. Longer documents use a [sliding window](#long-documents-the-sliding-window). |
+| **Sheet Mesh** *(advanced)* | Static Mesh | *None* | Overrides the sheet mesh. Unset uses the project's page sheet mesh from [Project Settings](/plugins/inkwell/reference/settings). Needs clean 0–1 UVs. |
+| **Sheets Block Traces** *(advanced)* | Boolean | `true` | Give sheets query collision so a line trace can focus the pile. Off means no collision whatsoever. |
+| **Sheet Trace Channel** *(advanced)* | Collision Channel | `Visibility` | The one channel the sheets respond to. Every other channel is ignored. Match it to your interactor's **Trace Channel**. |
+
+<Note>
+The inherited **Procedural Paper** toggle is grayed out here. A stack always spawns its own
+sheets, so the base component's single fallback sheet never applies. The inherited
+**Material Slot** is not used either: sheets are single-material and the page always goes into
+slot 0.
+</Note>
 
 ### How the pile is shaped
 
-Sheets fan out with depth: each deeper sheet moves **Fan Splay** centimetres sideways and
-twists **Fan Angle** degrees, alternating direction per sheet, with the magnitude growing
-with depth — so deeper sheets peek out further and the pile looks naturally untidy.
-**Sheet Gap** stacks them vertically (the top sheet sits highest), **Stack Offset** and
-**Stack Yaw** place and orient the whole pile relative to the actor's root, and
-**Page Size Cm** scales each sheet from the 100 cm plane mesh to real paper dimensions.
+Each deeper sheet is offset from the one above it: down by **Sheet Gap**, sideways by
+**Fan Splay**, and twisted by **Fan Angle**. Splay and twist **alternate direction** per
+sheet and grow in magnitude with depth, which is what stops a splayed pile from leaning off
+to one side while still letting deeper sheets peek out further. The top sheet has no splay
+and no twist — only **Stack Yaw**, which rotates the pile as a whole.
+
+**Stack Offset** places the pile relative to the actor's root, so the actor's origin can stay
+where it is useful (the desk surface, the pivot of a prop) while the paper sits somewhere
+else.
+
+Swapping in a different document re-deals the pile at that document's dimensions, live in the
+viewport, and dragging **Page Scale** re-deals it larger or smaller as you drag — without
+re-baking a single page.
 
 ## Page turns
 
-In play, calling **Next Page** / **Previous Page** / **Set Page Index** does not swap a
-texture — the sheets physically glide to their new slots in the pile, eased at
-**Flip Interp Speed**. The pile is ordered by reading order relative to the current page:
-the current page is on top, upcoming pages beneath it, and already-read pages cycle to
-the back of the pile.
+In play, **Next Page** / **Previous Page** / **Set Page Index** do not swap a texture. The
+pile is re-dealt and the sheets move to their new slots:
 
-The component only ticks while sheets are actually moving; once every sheet has settled
-into its slot, ticking switches itself off.
+- **Sheets shuffling one place** up or down ease to their slot at **Flip Interp Speed**. They
+  all move the same way at the same time, so a straight line crosses nothing.
+- **The sheet that travels from one end of the pile to the other** — the page actually being
+  turned — flies instead. It swings clear of the pile's footprint, rises to
+  **Page Turn Lift Cm** above the top of the pile at the apex of its arc, tips over as it goes,
+  and comes back down onto its new slot. The whole flight takes **Page Turn Duration** seconds
+  and runs on a clock, not on an interpolation speed, so each stage happens in order.
+- The clearance swing is computed from the paper itself — a full page width plus the pile's
+  total splay — so the flying sheet never slices down through the stack on its way to the
+  bottom.
+- Turn the page again mid-flight and the airborne sheet keeps its progress and re-aims rather
+  than dropping out of the air, so fast page-flipping stays smooth.
 
-In the editor, property edits **snap** the sheets straight into place (no gliding under a
-slider drag). In play, only a structural rebuild snaps — normal page turns always
+The component **only ticks while sheets are moving**. Once everything has settled into its
+slot, ticking switches itself off.
+
+With **Animate Page Turns** off, every rearrangement snaps and no sheet is ever caught between
+slots. In the editor viewport, property edits always snap — dragging **Fan Splay** or
+**Sheet Gap** reshapes the pile instantly instead of gliding under the slider. In play, only a
+structural rebuild (a new document, a change in sheet count) snaps; ordinary page turns
 animate.
 
 ## Long documents: the sliding window
 
-At most **Max Visible Sheets** sheet meshes ever exist. For documents with more pages
-than that, the stack shows a **sliding window** of consecutive pages around the current
-page and quietly re-bakes hidden sheets as you read — the pile always looks right from
-the top, and a 200-page document costs no more meshes than a 16-page one.
+At most **Max Visible Sheets** sheet meshes ever exist. A document with more pages than that
+shows a **sliding window** of consecutive pages around the current page, and re-bakes sheets at
+the window's edge as you read. A 200-page document costs no more meshes than a 16-page one, and
+the pile always looks right from the top.
 
-Details, for the curious:
-
-- The window is a block of consecutive pages positioned so the current page is inside it,
+- The window is a block of consecutive pages, positioned so the current page is inside it and
   never wrapping past either end of the document.
-- Each page keeps the same sheet across page flips; only sheets at the window's edge ever
+- Each page keeps the same sheet across page turns, so only sheets at the window's edge ever
   take on a new page.
-- When the window slides, the departing sheet's new page is **not** baked while the sheet
-  is moving — that would visibly swap the ink on a sheet mid-glide. The bake is deferred
-  until the sheet has settled at the bottom of the pile.
-- If the document's content changes (a page edited, added, or removed at runtime), every
-  sheet re-bakes on the next **Refresh**.
+- **A moving sheet is never re-inked.** When the window slides, the new page is deferred until
+  the sheet has settled at the bottom of the pile — otherwise you would watch the ink change on
+  a sheet in mid-flight.
+- Editing the document at runtime bumps its content revision, which marks every sheet stale;
+  they all re-bake on the next **Refresh**.
 
-## Collision: sheets are focus targets, not obstacles
+## Collision: focus targets, not obstacles
 
-Sheets **never collide with the player, physics, or the camera**. They exist for one
-purpose only: answering the line trace that lets an interactor focus the pile.
+Sheets exist for one purpose beyond being seen: answering the line trace that lets an
+interactor focus the pile. Each sheet is set up as:
 
-Concretely, every sheet is set up as:
+- Collision enabled: **Query Only** — no physics collision at all. (Or **No Collision** when
+  **Sheets Block Traces** is off.)
+- Object type: **World Dynamic**.
+- Responses: **ignore every channel**, then **block exactly one** — **Sheet Trace Channel**.
+- Overlap events off, and never affects the navmesh.
 
-- Collision enabled: **Query Only** (no physics collision at all).
-- Object type: World Dynamic.
-- Responses: **Ignore every channel**, then **Block exactly one** — the
-  **Sheet Trace Channel** (default **Visibility**, matching the bundled
-  [Ink Page Interactor](/plugins/inkwell/components/interactor)'s **Trace Channel** default).
-- Overlap events off, and sheets **never affect the navmesh**.
-
-So pawn movement sweeps, physics impulses, and camera probes all pass straight through
-the pile, while a visibility line trace still hits it. If you turn
-**Sheets Block Traces** off, sheets have **no collision whatsoever** and traces pass
-through too — use that when your interaction targets a separate collision mesh on the
-owning actor.
-
-<Note>
-If your interaction system traces on a custom channel, set **Sheet Trace Channel** to
-that same channel — the sheets answer only that one channel.
-</Note>
-
-## Blueprint API
-
-Everything from [Ink Page Display](/plugins/inkwell/components/page-display#page-api) works unchanged.
-The stack adds one function:
-
-| Function | Returns | Notes |
-| --- | --- | --- |
-| **Get Sheets** (`GetSheets`) | Array of Static Mesh Components | The sheet meshes currently in the pile, top of the pile first. |
-
-Two inherited functions behave stack-aware:
-
-- **Resolve Target Mesh** returns the **top sheet** — the one showing the current page.
-- **Refresh** rebuilds the pile: sheet count, layout, and any stale bakes.
+Pawn movement sweeps, physics impulses and camera probes all pass straight through the pile,
+while a trace on the right channel still hits it. These settings are re-applied whenever the
+pile is refreshed, so changing **Sheet Trace Channel** or **Sheets Block Traces** takes effect
+without rebuilding anything.
 
 <Warning>
-The sheet meshes are transient, derived state — they are created at runtime (and for
-editor preview), rebuilt from the document on load, and never saved into the level. Do
-not attach things to individual sheets or expect them to persist; read them through
-**Get Sheets** when you need them.
+If your interaction system traces on a custom channel, set **Sheet Trace Channel** to that same
+channel. The sheets answer that one channel and nothing else, so a mismatch means the pile is
+never focusable — the trace passes through it as if it were not there.
 </Warning>
+
+## API
+
+Everything from [Ink Page Display](/plugins/inkwell/components/page-display#functions) works unchanged. The
+stack adds one node:
+
+| Node | Returns | What it does |
+| --- | --- | --- |
+| **Get Sheets** | Array of Static Mesh Components | The sheet meshes currently in the pile, top of the pile first. |
+
+Three inherited functions are stack-aware:
+
+- **Resolve Target Mesh** returns the **top sheet** — the one showing the current page. With no
+  sheets (no document assigned) it falls back to the base component's rule.
+- **Refresh** rebuilds the pile: sheet count, mesh and collision, page assignment, layout, and
+  any stale bakes.
+- **Apply Page Size** re-deals the pile at the current sheet size and nothing else. Every sheet
+  already carries the right page, so only transforms are rewritten. This is the cheap path a
+  **Page Scale** change takes.
+
+## Build a readable journal on a table
+
+<Steps>
+  <Step title="Author a multi-page document">
+    Create an Ink Page Document, add the pages, and save with **Save Document**. See
+    [documents](/plugins/inkwell/authoring/documents) and the [Page Editor](/plugins/inkwell/authoring/page-editor). The
+    document's **Page Width Cm** decides how big the paper is, so set it to something
+    journal-sized (14–16 cm) rather than A4.
+  </Step>
+  <Step title="Give the journal its own actor">
+    Create an empty Actor Blueprint — journal, not table. Add a **Scene** component as the root
+    if it has none, then **Add Component → Ink Page Stack**, and assign your **Document**.
+
+    Keep the stack on its own actor. The [Ink Page Reader](/plugins/inkwell/components/reader) floats the
+    **whole actor** up to the camera when the player reads it, so a stack parented to the table
+    actor would take the table with it.
+  </Step>
+  <Step title="Place it and orient the pile">
+    Drag the actor into the level and sit it on the table, with the actor's Z pointing up. The
+    pile appears in the viewport immediately — **Preview In Editor** is on by default.
+
+    Rotate the actor so the paper faces the right way, then use **Stack Yaw** to spin the pile
+    in its own plane until the writing reads upright from where the player will stand.
+    **Stack Offset** nudges the pile off the actor's origin if you want the origin somewhere
+    else.
+  </Step>
+  <Step title="Tune the pile">
+    Scrub **Page Index** to confirm the sheets reorder. Then set the look: **Sheet Gap** for how
+    thick the pile reads, **Fan Splay** and **Fan Angle** for how tidy it is (defaults are a
+    neat pile; `2` and `4` give a rummaged desk). Cap **Max Visible Sheets** lower if the
+    document is long and the pile only needs to look deep, not complete.
+  </Step>
+  <Step title="Give the player an interactor and a reader">
+    On your player pawn, **Add Component → Ink Page Interactor**. It finds or creates an
+    [Ink Page Reader](/plugins/inkwell/components/reader) on the same actor at Begin Play. Check that its
+    **Trace Channel** matches the stack's **Sheet Trace Channel** — both are **Visibility** out
+    of the box, so usually there is nothing to do.
+
+    Already have an interaction system? Skip the interactor, trace with your own code, call
+    **Begin Reading** on the reader with the stack component, and see the
+    [integration guide](/plugins/inkwell/guides/integration).
+  </Step>
+  <Step title="Play it">
+    With the interactor's **Enable Default Input** on, look at the pile and press **E**: the
+    journal floats up to the camera. **Right arrow** or **mouse wheel up** turns forward,
+    **Left arrow** or **wheel down** turns back — and you see the top sheet arc around to the
+    bottom of the pile each time. **Q** puts it back exactly where it was lying.
+
+    Nothing focusable? Turn on **Draw Debug Trace** on the interactor: the line is green when it
+    hits a readable page and red when it does not.
+  </Step>
+</Steps>
+
+## Working with the reader and the interactor
+
+The [Ink Page Interactor](/plugins/inkwell/components/interactor) traces from the player's view on its
+**Trace Channel**, and looks for an Ink Page Display component on whatever **actor** it hit.
+A stack sheet is a component of the stack's actor, and Ink Page Stack *is* an Ink Page Display,
+so the pile focuses like any other page. That is the whole integration — nothing on the stack
+needs configuring beyond matching the channel.
+
+The [Ink Page Reader](/plugins/inkwell/components/reader) then does the reading. Things worth knowing when the
+page being read is a stack:
+
+- **The reader moves the actor, not the sheet.** The whole pile floats up together, keeps its
+  shape, and blends back to exactly where it was lying. This is why the stack wants an actor of
+  its own.
+- **Collision is disabled on the actor while it is being read**, so a pile at the player's face
+  cannot be traced or bumped, and restored when the page is put down.
+- **Page turns still animate while reading.** The reader's **Next Page** / **Previous Page**
+  call straight through to the stack, so the sheet arcs around the pile right in front of the
+  camera.
+- **Reading Rotation Offset** on the reader is tuned for the Inkwell page sheet — a flat plane
+  whose printed face points up. Stack sheets use that same mesh, so the default is right. If you
+  set a custom **Sheet Mesh** with a different orientation, that is the property to adjust.
+- Physics-simulating components on the page actor are switched off for the ride and restored
+  afterwards, so a pile you can knock about still reads correctly.
 
 ## Editor preview
 
-Like the base component, the stack previews live in the level viewport: assign a
-document and the pile appears; scrub **Page Index** and the sheets reorder; drag
-**Fan Splay** or **Sheet Gap** and the pile reshapes instantly, snapping rather than
-animating so the sliders feel direct. The preview never dirties the map package, and the
-same startup-retry behaviour as [Ink Page Display](/plugins/inkwell/components/page-display#editor-preview)
-applies. In play, sheet bakes go through the per-world page cache, so several stacks
-showing the same document page share one bake.
+The stack previews in the level viewport exactly like the base component: assign a document and
+the pile appears, scrub **Page Index** and the sheets reorder, drag the layout properties and
+the pile reshapes instantly. The preview bakes into a render target per sheet, never dirties the
+level package, and uses the same startup-retry behavior described under
+[Ink Page Display](/plugins/inkwell/components/page-display#editor-preview). In play, sheet bakes go through the
+per-world page cache, so several stacks showing the same document page share one bake.
 
-## See also
+## Next
 
 <CardGroup cols={2}>
-  <Card title="Ink Page Display" icon="file-lines" href="/plugins/inkwell/components/page-display">
-    The base component: properties, page API, and events the stack inherits.
-  </Card>
-  <Card title="Ink Page Interactor" icon="hand-pointer" href="/plugins/inkwell/components/interactor">
-    The reference line-trace interactor whose Trace Channel matches Sheet Trace Channel.
+  <Card title="Ink Page Display" icon="note-sticky" href="/plugins/inkwell/components/page-display">
+    The base component: properties, page API and events the stack inherits.
   </Card>
   <Card title="Ink Page Reader" icon="book-open-reader" href="/plugins/inkwell/components/reader">
-    Snap a page from the pile into the player's view.
+    Floating the pile up to the player's eyes, and putting it back.
   </Card>
-  <Card title="Examples tour" icon="compass" href="/plugins/inkwell/guides/examples">
+  <Card title="Ink Page Interactor" icon="hand-pointer" href="/plugins/inkwell/components/interactor">
+    The reference line-trace interactor whose Trace Channel pairs with Sheet Trace Channel.
+  </Card>
+  <Card title="Examples tour" icon="box-open" href="/plugins/inkwell/guides/examples">
     BP_InkwellJournalStack and the rest of the shipped example content.
   </Card>
 </CardGroup>

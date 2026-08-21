@@ -1,0 +1,223 @@
+---
+title: "Paper"
+description: "Supplied paper textures and generated stock — rulings, margin rules, punched holes, grain — plus the other Procedural Paper, on the Ink Page Display component."
+icon: "newspaper"
+---
+
+Paper is what the ink is multiplied over. An **Ink Page Document** (`UInkPageDocument`)
+gets it one of two ways, chosen by **Paper** at the top of the **Paper & Ink** section in
+the Page Editor's left column:
+
+| Mode (`EInkPaperMode`) | Panel label | What it means |
+|---|---|---|
+| `Texture` | **Texture asset** | Use the `UTexture2D` in **Paper texture (document)**. Unset, the page falls back to the page material's plain-paper color. |
+| `Procedural` | **Generated** | Inkwell rasterizes the sheet from the settings below. No texture asset is involved at all: the ruling, the holes, and the grain are all drawn. |
+
+`PaperMode` defaults to `Texture`.
+
+<Frame caption="Generated paper: a strip of plain, lined, grid, dotted, and lined stock with a margin rule and punched holes.">
+  <img src="/images/inkwell/paper-samples.png" alt="Samples of Inkwell's generated paper" />
+</Frame>
+
+## Per-page override
+
+Under the mode picker sits **Paper override (this page)** — the page's own
+`PaperOverride` texture. It beats **both** choices above: `GetPaperForPage()` returns it
+before it looks at the mode at all. Clear it and the page falls back to the document's
+paper. Use it for the one page in a journal that is a torn receipt.
+
+## Generated paper
+
+Everything in `FInkProceduralPaper`, with the real defaults from `InkPageLayer.h`. Distances
+are in **page pixels** — pixels of the document's **Page Size Pixels** — so they scale with
+the page rather than with the screen.
+
+| Property | Type | Default | What it does |
+|---|---|---|---|
+| `Ruling` | `EInkPaperRuling` | `Lined` | Plain, Lined, Grid, or Dotted. |
+| `PaperColor` | `FLinearColor` | `(0.96, 0.945, 0.90, 1)` | The stock itself — a warm off-white. |
+| `LineColor` | `FLinearColor` | `(0.55, 0.68, 0.82, 1)` | The ruling: lines, grid, or dots. Its alpha is honored. |
+| `LineSpacingPx` | `float` | `64` | Distance between ruled lines, and the grid's cell pitch. Minimum 4. |
+| `LineThicknessPx` | `float` | `2` | How heavy the ruling is drawn. Minimum 0.5. Sub-pixel rules fade rather than vanish. |
+| `TopMarginPx` | `float` | `90` | Blank paper above the first line and below the last. Clamped to half the page height. |
+| `bMarginRule` | `bool` | `false` | Draw a vertical margin rule down the left — a notebook's red line. |
+| `MarginRuleColor` | `FLinearColor` | `(0.85, 0.42, 0.42, 1)` | Color of that rule. |
+| `MarginRuleOffsetPx` | `float` | `90` | How far in from the left edge the rule sits. |
+| `bPunchHoles` | `bool` | `false` | Punched binder holes down the left edge. |
+| `HoleCount` | `int32` | `3` | How many holes. 1–16; three is a standard binder. |
+| `HoleDiameterPx` | `float` | `34` | Width of each punch. Minimum 2. |
+| `HoleInsetPx` | `float` | `42` | Left edge to the center of the holes. |
+| `HoleEdgeMarginPx` | `float` | `220` | Blank space above the first hole and below the last. |
+| `HoleColor` | `FLinearColor` | `(0.05, 0.05, 0.06, 1)` | What a punch shows. See the caveat below. |
+| `GrainStrength` | `float` | `0.04` | Per-pixel fiber noise. 0 is perfectly flat stock. |
+| `GrainSeed` | `int32` | `0` | Seed for the grain. Advanced display. |
+
+<Frame caption="The Paper & Ink section with Generated selected: ruling, margin rule, and punched holes.">
+  <img src="/images/inkwell/page-editor-paper-panel.png" alt="The Paper & Ink section of the Inkwell Page Editor" />
+</Frame>
+
+### The four rulings
+
+- **Plain** — no ruling at all. Still gets grain, a margin rule, and holes if you ask for
+  them.
+- **Lined** — horizontal writing lines every `LineSpacingPx`, starting `TopMarginPx` from the
+  top and stopping the same distance from the bottom.
+- **Grid** — the same rows plus vertical rules at the same pitch, so cells come out square.
+  The column run is centered across the width, which leaves equal margins on both sides
+  instead of a ragged part-cell jammed against one edge.
+- **Dotted** — a dot at each grid intersection, radius `0.75 × LineThicknessPx`. Dots sit on
+  exactly the line centers Grid would use, so switching a sheet between Grid and Dotted never
+  shifts the writing guides.
+
+Rows, columns, and dots are unioned rather than summed, so a grid intersection does not print
+twice as dark as the lines crossing it.
+
+### The margin rule
+
+`bMarginRule` is independent of the ruling: a Plain sheet can still carry a red line, and on
+a Lined sheet the rule draws **over** the ruling. It is drawn at `LineThicknessPx`, centered
+on `MarginRuleOffsetPx` from the left edge, and its color's alpha is honored.
+
+<Tip>
+Line up the writing with the ruling. `TopMarginPx` and `MarginRuleOffsetPx` both default to
+90, which is also the default `MarginsPx` on the document — so out of the box the text
+block's top edge lands on the first ruled line and its left edge lands on the rule itself.
+Pull `MarginRuleOffsetPx` in a little if you want the writing to start clear of the rule, and
+change one of these numbers only by changing the other, or the writing floats away from the
+lines.
+</Tip>
+
+### Punched holes
+
+Holes are spread evenly between `HoleEdgeMarginPx` from the top and the same from the bottom
+(clamped to half the page height). A single hole centers on the sheet instead of sitting at
+the top margin. Each punch gets a shaded rim just inside its edge, derived from `HoleColor`
+rather than being a fixed gray, standing in for the cut edge of the stock catching less
+light.
+
+<Warning>
+**Holes are drawn, not cut.** The sheet is an opaque albedo texture that the page material
+multiplies ink over, so there is no alpha to punch through — `HoleColor`'s alpha is ignored
+for the same reason, and the holes are painted last, over the grain, the ruling, and the
+margin rule alike.
+
+Pick the color accordingly:
+
+- **A near-black** (the default) reads as a hole against most backgrounds — it looks like a
+  shadowed punch-through wherever the page is seen against something darker than the paper.
+- **The color of whatever the page lies on** — the desk, the table, the wall — reads as a
+  real punch-through, and is the better choice for a page that only ever appears in one
+  place.
+- **The color of the paper** hides the holes entirely, which is the honest way to say "not
+  this page".
+</Warning>
+
+### Grain
+
+`GrainStrength` is multiplicative per-pixel fiber noise applied to the paper color **under**
+the ruling: printed lines sit on paper, they are not made of it. It multiplies rather than
+adds, so the stock keeps its hue instead of drifting gray. The default `0.04` is a barely
+perceptible tooth; push it to 0.15 for cheap pulp, drop it to 0 for a laser-printed sheet.
+
+`GrainSeed` picks which noise you get. Two documents with identical settings and different
+seeds get different fiber — worth setting when several notes in one scene share a look and
+you do not want them to be visibly the same sheet.
+
+### How the sheet is produced
+
+The generated texture is built once per distinct set of settings and cached **on the
+document**, so twenty pages sharing a document share one sheet. It is rasterized at the
+document's clamped bake size — **Page Size Pixels**, reduced if either axis exceeds
+**Max Page Bake Dimension** in
+[Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings) (default 4096) — so the paper
+always matches the ink texture it sits behind, pixel for pixel. It carries a full mip chain
+generated in linear space, so the ruling does not alias or darken when the page is a couple
+of meters away.
+
+The sheet is transient: it lives in memory, is never saved into the asset, and is
+regenerated from the settings on load. Change any procedural setting and the cache hash
+stops matching, so the next request rebuilds it — which is why the Page Editor's preview
+updates as you drag a slider.
+
+### Recipe: lined notebook paper
+
+<Steps>
+  <Step title="Switch to Generated">
+    In the Page Editor's left column, find **Paper & Ink** and set **Paper** to **Generated**.
+    The paper texture picker disappears and the ruling controls take its place.
+  </Step>
+  <Step title="Pick the ruling">
+    Set **Ruling** to **Lined**. **Spacing px** is the distance between ruled lines in page
+    pixels, 64 by default. Set it against the pitch of your own text — **Size** in Default
+    Text Style and **Line height** in Page Setup decide that — and check the result in
+    the **Rendered Preview** rather than by arithmetic: writing that sits on the lines is the
+    only test that counts.
+  </Step>
+  <Step title="Set the head and foot">
+    **Top margin** is the blank paper above the first line and below the last. Match it to the
+    document's vertical **Margins** in Page Setup so the writing starts on a line.
+  </Step>
+  <Step title="Add the red line">
+    Tick **Draw margin rule**. Set **Rule offset** a little *smaller* than the document's
+    horizontal **Margins** — at the shared default of 90 the rule lands exactly under the
+    text block's left edge — and pick a **Rule color**; the default dusty red reads as a
+    school exercise book.
+  </Step>
+  <Step title="Punch it">
+    Tick **Punch binder holes**. Leave **Holes** at 3, set **Inset** well left of the rule
+    offset, and set **Hole color** to the color of whatever surface the page will be seen
+    against.
+  </Step>
+  <Step title="Rough up the stock">
+    Nudge **Grain** to about 0.06 and give **Grain seed** a number of its own. Then check the
+    **Rendered Preview** at the top of the right column — it is baked through the same path
+    the game uses.
+  </Step>
+</Steps>
+
+## Paper tint, ink tint, ink strength
+
+Three document-level controls sit under the mode-specific ones and apply to **both** modes:
+
+| Control | Property | Default | What it does |
+|---|---|---|---|
+| **Paper tint** | `PaperTint` | White | Multiplied over the finished paper, generated or supplied. How one document is aged without touching the stock itself. |
+| **Ink tint** | `InkTint` | White | Multiplied over everything the page draws: text, images, and strokes alike. |
+| **Ink strength** | `InkStrength` | `1.0` | How dark the ink sits on the paper. Lower it for pencil that has been rubbed at, or writing that has faded. |
+
+## The other Procedural Paper
+
+**Ink Page Display** (`UInkPageDisplayComponent`) has a boolean also called **Procedural
+Paper** (`bProceduralPaper`, default **true**). It is a completely different thing, and the
+shared name is the only thing the two have in common.
+
+| | Document's `PaperMode = Procedural` | Component's **Procedural Paper** |
+|---|---|---|
+| Lives on | The Ink Page Document asset | The Ink Page Display component |
+| Answers | *What does the paper look like?* | *Is there anything in the world to print on?* |
+| Produces | A texture — ruled, tinted, grained | A static mesh component in the level |
+| Default | Off (`Texture`) | **On** |
+
+The component's boolean makes the page **spawn its own sheet of paper** — a transient static
+mesh sized from the document — when the actor has no mesh of its own. Nothing on this page
+changes when you toggle it, and nothing on that component changes the ruling, the holes or
+the grain. The spawned sheet, its collision, when it steps aside for a mesh you supplied, and
+when to turn it off are covered under
+[Procedural Paper on Ink Page Display](/plugins/inkwell/components/page-display#procedural-paper).
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Ink Page Display" icon="note-sticky" href="/plugins/inkwell/components/page-display">
+    The component that prints a page onto a mesh, including its own Procedural Paper.
+  </Card>
+  <Card title="Layers" icon="clone" href="/plugins/inkwell/authoring/layers">
+    What gets stacked on top of the paper, and in what order.
+  </Card>
+  <Card title="Page Documents" icon="file-lines" href="/plugins/inkwell/authoring/documents">
+    Page size, margins, and the rest of the document's properties.
+  </Card>
+  <Card title="Rendering reference" icon="gears" href="/plugins/inkwell/reference/rendering">
+    How paper and baked ink meet in the page material.
+  </Card>
+</CardGroup>

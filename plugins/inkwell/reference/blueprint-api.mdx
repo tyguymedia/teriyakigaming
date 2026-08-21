@@ -1,412 +1,562 @@
 ---
 title: "Blueprint API Reference"
-description: "Every Blueprint-callable function, event, and property on Inkwell's runtime classes, in one place."
+description: "Every Blueprint-callable function, property, event and struct on Inkwell's runtime classes, with types and defaults"
 icon: "code"
 ---
 
-This page is the condensed, complete reference for Inkwell's runtime Blueprint surface: the
-[Ink Page Document](#ink-page-document) asset, the five in-world classes
-([Display](#ink-page-display), [Stack](#ink-page-stack), [Actor](#ink-page-actor),
-[Reader](#ink-page-reader) and [Interactor](#ink-page-interactor)), the
-[Ink Page widget](#ink-page-widget-umg) for UMG, and the
-[render function library](#render-library-and-page-cache) behind them all.
-
-Names below are the editor display names; the C++ identifier appears in parentheses once per
-entry. Everything here is fully usable from Blueprint — the same API is available from C++
-through the `Inkwell` runtime module.
+This is the complete Blueprint surface of the `Inkwell` runtime module — nothing on this
+page needs C++, and nothing Blueprint-visible is missing from it. For task-oriented
+walkthroughs, use the component pages instead:
+[Ink Page Display](/plugins/inkwell/components/page-display), [Ink Page Stack](/plugins/inkwell/components/page-stack),
+[Ink Page](/plugins/inkwell/components/page-actor), [Ink Page Reader](/plugins/inkwell/components/reader),
+[Ink Page Interactor](/plugins/inkwell/components/interactor),
+[Ink Page widget](/plugins/inkwell/components/page-widget).
 
 <Note>
-For task-oriented walkthroughs, start with the per-component pages instead:
-[Ink Page Display](/plugins/inkwell/components/page-display), [Ink Page Stack](/plugins/inkwell/components/page-stack),
-[Ink Page Actor](/plugins/inkwell/components/page-actor), [Ink Page Reader](/plugins/inkwell/components/reader),
-[Ink Page Interactor](/plugins/inkwell/components/interactor), [Ink Page Widget](/plugins/inkwell/components/page-widget).
+**How to read this page.** Names are given as they appear in the Blueprint palette, with
+the C++ identifier in parentheses. Boolean properties lose their `b` prefix in Blueprint,
+so `bLoopPages` is the pin **Loop Pages**. Functions marked *pure* are green nodes with no
+execution pins. Where a function takes a world context object, that pin is hidden in
+Blueprint and filled in for you.
 </Note>
 
 ## Ink Page Document
 
-`UInkPageDocument` — a Data Asset holding the authored page content. Create one with
-**right-click → Inkwell → Page Document**; author it in the [Page Editor](/plugins/inkwell/authoring/page-editor)
-(double-click the asset). See [Documents](/plugins/inkwell/authoring/documents) for the full story.
+`UInkPageDocument`, display name **Ink Page Document** — a Data Asset holding authored page
+content. Create one with **right-click → Inkwell → Page Document** and author it in the
+[Page Editor](/plugins/inkwell/authoring/page-editor).
 
 ### Properties
 
-Document properties are editable on the asset and readable from Blueprint
-(`BlueprintReadOnly`) — except Font References, which is editor-only and not visible to
-Blueprint. To change page content at runtime, use the
-[mutation functions](#functions) below — they invalidate the bake cache for you; a directly
-writable `Pages` array could not guarantee that.
+Every document property is `BlueprintReadOnly` except **Page Width Cm**. That is
+deliberate: a page change has to invalidate the bake cache, which a directly writable array
+could not guarantee, so content changes go through the [functions](#functions) below.
 
 **Page Setup**
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Page Size Pixels (`PageSizePixels`) | IntPoint | 1024 × 1400 | Bake resolution of a page in pixels. Also defines the aspect ratio of the layout. |
-| Margins Px (`MarginsPx`) | Margin | 90 px on all four sides | Text margins, in page pixels. |
-| Line Height Percentage (`LineHeightPercentage`) | Float | 1.18 | Line spacing multiplier. Clamped 0.5–3. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Page Size Pixels** (`PageSizePixels`) | Int Point | 1024 × 1400 | Read | Bake resolution of a page, and the aspect ratio of the layout. |
+| **Page Width Cm** (`PageWidthCm`) | Float | 21.0 | Read / Write | How wide a page is in the world, in centimeters. The only physical dimension there is — height follows from the Page Size Pixels aspect ratio. Minimum 0.1. |
+| **Margins Px** (`MarginsPx`) | Margin | 90 on all four sides | Read | Text margins, in page pixels. Used by text layers that fill the page. |
+| **Line Height Percentage** (`LineHeightPercentage`) | Float | 1.18 | Read | Line spacing multiplier, clamped 0.5–3. |
 
 **Paper & Ink**
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Paper Texture (`PaperTexture`) | Texture2D | None | Paper albedo. Unset = the page material's plain-paper fallback color. |
-| Paper Tint (`PaperTint`) | Linear Color | White | Multiplied over the paper. |
-| Ink Tint (`InkTint`) | Linear Color | White | Global multiplier on the baked ink — tints everything written on the pages. |
-| Ink Strength (`InkStrength`) | Float | 1.0 | 1 = fully opaque ink; lower lets more paper grain through every stroke. Clamped 0–1. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Paper Mode** (`PaperMode`) | [Ink Paper Mode](#ink-paper-mode) | `Texture` | Read | Whether paper comes from a texture asset or is generated. |
+| **Procedural Paper** (`ProceduralPaper`) | [Ink Procedural Paper](#ink-procedural-paper) | see struct | Read | Settings for generated paper. Used only while Paper Mode is `Procedural`. |
+| **Paper Texture** (`PaperTexture`) | Texture 2D | None | Read | Paper albedo. Unset falls back to the page material's flat paper color. Used only while Paper Mode is `Texture`. |
+| **Paper Tint** (`PaperTint`) | Linear Color | White | Read | Multiplied over the paper. |
+| **Ink Tint** (`InkTint`) | Linear Color | White | Read | Multiplied over the baked ink — tints everything written on the pages. |
+| **Ink Strength** (`InkStrength`) | Float | 1.0 | Read | 1 = fully opaque ink, lower lets more paper through every stroke. Clamped 0–1. |
 
 **Default Text Style**
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Default Font (`DefaultFont`) | Font | None | Font for unstyled text (a composite UFont asset with runtime caching). Unset = the project's Inkwell default font ([Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)). |
-| Default Typeface (`DefaultTypeface`) | Name | None | Typeface entry inside the composite font ("Regular", "Bold", "Italic", …). |
-| Default Font Size (`DefaultFontSize`) | Float | 28.0 | Size of unstyled text. Clamped 6–400. |
-| Default Color (`DefaultColor`) | Linear Color | (0.02, 0.017, 0.025, 1.0) | Color of unstyled text. Slightly warm near-black reads as ink better than pure black. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Default Font** (`DefaultFont`) | Font | None | Read | Font for unstyled text. Unset uses the project's Inkwell default font. Documents created through the Content Browser are seeded from that setting, so in practice this is rarely empty. |
+| **Default Typeface** (`DefaultTypeface`) | Name | None | Read | Typeface entry inside the composite font — `Regular`, `Bold`, `Italic`, … |
+| **Default Font Size** (`DefaultFontSize`) | Float | 28.0 | Read | Size of unstyled text in page pixels. Clamped 6–400. |
+| **Default Color** (`DefaultColor`) | Linear Color | (0.02, 0.017, 0.025, 1.0) | Read | Color of unstyled text. A warm near-black reads as ink better than pure black. |
 
 **Pages**
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Pages (`Pages`) | Array of Ink Page Spec | Empty | The document's pages. Read-only in Blueprint — mutate through Add Page / Remove Page / Set Page / Set Page Markup. |
-| Font References (`FontReferences`) | Array of Object | Empty | Advanced, editor-only (not visible to Blueprint). Hard references to every font used in the markup; the Page Editor maintains this list on save so the cooker packages fonts the markup names only by string path. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Pages** (`Pages`) | Array of [Ink Page Spec](#ink-page-spec) | one empty page | Read | The document's pages. Mutate through the functions below. |
 
-### Struct: Ink Page Spec
-
-`FInkPageSpec` (Blueprint-constructible) — one page. Use it with Add Page / Set Page / Get Page.
-
-| Field | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Markup (`Markup`) | String | Empty | Rich-text markup (UE rich text format; styled runs carry font/size/color/typeface attributes). Author with the Page Editor rather than by hand. |
-| Images (`Images`) | Array of Ink Page Image | Empty | Freely placed images on this page. |
-| Paper Override (`PaperOverride`) | Texture2D | None | Overrides the document paper texture for this page only (None = use the document's). |
-| Justification (`Justification`) | Text Justify | Left | Per-page text justification. |
-
-### Struct: Ink Page Image
-
-`FInkPageImage` — an image placed freely on a page. Positions and sizes are normalized 0–1
-page coordinates.
-
-| Field | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Texture (`Texture`) | Texture2D | None | The image to draw. |
-| Position (`Position`) | Vector 2D | (0.1, 0.1) | Top-left corner of the image box, normalized (0,0 = page top-left; 1,1 = bottom-right). |
-| Size (`Size`) | Vector 2D | (0.3, 0.0) | Normalized width/height of the image box. Height ≤ 0 keeps the texture aspect ratio. |
-| Rotation Degrees (`RotationDegrees`) | Float | 0.0 | Rotation, in degrees (UI range −180 to 180). |
-| Opacity (`Opacity`) | Float | 1.0 | Image opacity. Clamped 0–1. |
-| Behind Text (`bBehindText`) | Boolean | false | Draw behind the text instead of over it (letterheads, watermarks, ruled lines). |
+<Note>
+`FontReferences` (hard references to every font the markup names by string path, maintained
+by the Page Editor on save so the cooker can see them), `ContentRevision` and
+`LayoutVersion` exist on the asset but are **not** exposed to Blueprint. To invalidate
+bakes, call **Bump Revision**.
+</Note>
 
 ### Functions
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Get Page Count (`GetPageCount`) | Pure | → Integer | Number of pages in this document. |
-| Get Paper For Page (`GetPaperForPage`) | Pure | Page Index → Texture2D | Paper texture for a page: the page's Paper Override if set, otherwise the document's. |
-| Get Effective Default Font (`GetEffectiveDefaultFont`) | Pure | → Font | The font unstyled text renders in: this document's Default Font when set, otherwise the project-wide Inkwell default font, and as a last resort the engine's own Roboto — so text is never invisible in an unconfigured project. |
-| Bump Revision (`BumpRevision`) | Callable | — | Invalidates every cached bake of this document. Call after changing pages at runtime (the mutation functions below do it for you). |
-| Add Page (`AddPage`) | Callable | Page (Ink Page Spec) → Integer | Appends a page and returns its index. Invalidates cached bakes of this document. |
-| Remove Page (`RemovePage`) | Callable | Page Index → Boolean | Removes a page. Returns false if the index was out of range. Invalidates cached bakes. |
-| Set Page (`SetPage`) | Callable | Page Index, Page → Boolean | Replaces one page wholesale. Returns false if the index was out of range. |
-| Set Page Markup (`SetPageMarkup`) | Callable | Page Index, Markup (String) → Boolean | Replaces just one page's rich-text markup. Returns false if the index was out of range. |
-| Get Page (`GetPage`) | Pure | Page Index → Ink Page Spec | Copy of one page's data (a default-constructed page if the index is out of range). |
+Category **Inkwell → Page Document**.
 
-See [Runtime Documents](/plugins/inkwell/guides/runtime-documents) for building documents from Blueprint at runtime.
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Get Page Count** *(pure)* | — | Integer | Number of pages in this document. |
+| **Get Page Size Cm** *(pure)* | — | Vector 2D | Physical page size in centimeters: Page Width Cm, with the height derived from the Page Size Pixels aspect ratio. |
+| **Get Paper For Page** *(pure)* | `Page Index` (Integer) | Texture 2D | The page's Paper Override if set, otherwise generated paper when Paper Mode is Procedural (baked on first use and reused), otherwise the document's Paper Texture. |
+| **Get Page Layers** *(pure)* | `Page Index` (Integer) | Array of [Ink Page Layer](#ink-page-layer) | The page's layers, back to front. Empty for an out-of-range page. |
+| **Set Page Layers** | `Page Index` (Integer), `Layers` (Array of Ink Page Layer) | Boolean | Replaces a page's whole layer stack. False if the index was out of range. |
+| **Add Page Layer** | `Page Index` (Integer), `Layer` (Ink Page Layer) | Integer | Appends a layer to the **front** of a page and returns its index, or -1 if the page index was out of range. |
+| **Remove Page Layer** | `Page Index` (Integer), `Layer Index` (Integer) | Boolean | Removes one layer. False if either index was out of range. |
+| **Move Page Layer** | `Page Index` (Integer), `Layer Index` (Integer), `Delta` (Integer) | Integer | Moves a layer through the stack; positive Delta is towards the front. Returns the new index, or -1 when nothing moved (clamped at either end, or Delta 0). |
+| **Find Text Layer Index** *(pure)* | `Page Index` (Integer) | Integer | Index of the page's first Text layer, or -1 when it has none. |
+| **Get Effective Default Font** *(pure)* | — | Font | This document's Default Font, else the project's Inkwell default font, else the engine's Roboto — so text is never invisible. |
+| **Bump Revision** | — | — | Invalidates every cached bake of this document. Call after changing pages by any route the functions here do not cover. |
+| **Add Page** | `Page` ([Ink Page Spec](#ink-page-spec)) | Integer | Appends a page and returns its index. Guarantees the new page has a Text layer, so a page built from Blueprint can always show its markup. |
+| **Remove Page** | `Page Index` (Integer) | Boolean | Removes a page. False if the index was out of range. |
+| **Set Page** | `Page Index` (Integer), `Page` (Ink Page Spec) | Boolean | Replaces one page wholesale. False if the index was out of range. |
+| **Set Page Markup** | `Page Index` (Integer), `Markup` (String) | Boolean | Replaces the text in the page's **first** text box. False if the page index was out of range. A page that somehow has no Text layer gets one first, so the markup always has somewhere to draw. |
+| **Set Layer Markup** | `Page Index` (Integer), `Layer Index` (Integer), `Markup` (String) | Boolean | Replaces the text of one specific Text layer. False if the indices are out of range or the layer is not a Text layer. |
+| **Get Page** *(pure)* | `Page Index` (Integer) | [Ink Page Spec](#ink-page-spec) | A **copy** of one page's data, or a default-constructed page when out of range. |
+
+<Warning>
+**Get Page** returns a copy. Editing the struct you get back changes nothing in the
+document — push it back with **Set Page**. Every mutating node above bumps the content
+revision for you; nothing else does.
+</Warning>
 
 ## Ink Page Display
 
-`UInkPageDisplayComponent` — the base display component. Drop it on any actor that owns a
-mesh, point it at a Page Document, and the mesh shows that page. It contains no input
-handling: it only exposes page-turn functions for your own interaction code, plus an
-On Page Changed event. Full guide: [Ink Page Display](/plugins/inkwell/components/page-display).
+`UInkPageDisplayComponent`, display name **Ink Page Display** — an Actor Component that
+draws one page of a document onto a mesh. Blueprintable and spawnable.
 
 ### Properties
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Document (`Document`) | Ink Page Document | None | The authored page content to show. Read/write from Blueprint. |
-| Page Index (`PageIndex`) | Integer | 0 | Which page of the document is currently shown (0 = the first page). Minimum 0. |
-| Material Slot (`MaterialSlot`) | Integer | 0 | Advanced. Material slot on the target mesh that the page is drawn into. Usually 0. |
-| Target Mesh (`TargetMesh`) | Component Reference | None | Mesh that the page is drawn onto. Leave empty to use the first mesh component found on the actor. The mesh needs clean 0–1 UVs across the page face — an atlas-mapped prop mesh will garble the text. |
-| Apply On Begin Play (`bApplyOnBeginPlay`) | Boolean | true | Draw the page automatically when the game starts. Turn off to reveal it later yourself. |
-| Loop Pages (`bLoopPages`) | Boolean | false | Wrap from the last page back to the first (and vice versa) when turning pages. |
-| Preview In Editor (`bPreviewInEditor`) | Boolean | true | Advanced. Update the page live in the level viewport while editing, without pressing Play. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Document** (`Document`) | Ink Page Document | None | Read / Write | The authored content to show. |
+| **Page Index** (`PageIndex`) | Integer | 0 | Read / Write | Which page is shown. Minimum 0. |
+| **Page Scale** (`PageScale`) | Float | 1.0 | Read / Write | Resizes this page relative to the size its document was authored at: 1 = as authored, 2 = twice as big. Both dimensions together, so the writing never stretches. Clamped to a minimum of 0.01; the slider runs 0.1–5. |
+| **Material Slot** (`MaterialSlot`) | Integer | 0 | Read / Write | Material slot on the target mesh the page is drawn into. *Advanced.* |
+| **Target Mesh** (`TargetMesh`) | Component Reference | None | Read / Write | Mesh the page is drawn onto. Empty uses the first mesh component on the actor. Needs clean 0–1 UVs across the page face. |
+| **Apply On Begin Play** (`bApplyOnBeginPlay`) | Boolean | `true` | Read / Write | Draw the page automatically when the game starts. |
+| **Loop Pages** (`bLoopPages`) | Boolean | `false` | Read / Write | Wrap from the last page back to the first, and the other way, when turning pages. |
+| **Preview In Editor** (`bPreviewInEditor`) | Boolean | `true` | Read / Write | Update the page live in the level viewport without pressing Play. *Advanced.* |
+| **Procedural Paper** (`bProceduralPaper`) | Boolean | `true` | Read / Write | Spawn and size a paper sheet when the actor has no mesh of its own. Never takes over a mesh you supplied. |
 
 ### Events
 
-| Event | Payload | Fires when |
-| --- | --- | --- |
-| On Page Changed (`OnPageChanged`) | New Page Index (Integer, 0-based), Page Count (Integer) | Every time the shown page changes — page turn, document swap, or refresh. Use it to play a page-turn sound, update a counter, etc. |
+| Event | Signature | Fires when |
+|---|---|---|
+| **On Page Changed** (`OnPageChanged`) | `New Page Index` (Integer), `Page Count` (Integer) | The displayed page changes — page turn, document swap, refresh. |
+| **On Page Size Changed** (`OnPageSizeChanged`) | `New Size Cm` (Vector 2D) | The paper's physical size changes — a document swap, or a Page Scale edit. |
 
 ### Functions
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Set Document (`SetDocument`) | Callable | New Document, New Page Index (default 0) | Swaps in a different Page Document and shows the given page. |
-| Set Page Index (`SetPageIndex`) | Callable | New Page Index → Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. Returns true if the page actually changed. |
-| Next Page (`NextPage`) | Callable | → Boolean | Turns to the next page. Returns false when already on the last page (unless Loop Pages is on). |
-| Previous Page (`PreviousPage`) | Callable | → Boolean | Turns to the previous page. Returns false when already on the first page (unless Loop Pages is on). |
-| Refresh (`Refresh`) | Callable | — | Re-bakes and re-applies the current page. Call after editing the document at runtime. Virtual — every page/document change funnels through here, and subclasses (Ink Page Stack) override it. |
-| Get Page Count (`GetPageCount`) | Pure | → Integer | How many pages the current document has (0 if no document is assigned). |
-| Get Current Page Index (`GetCurrentPageIndex`) | Pure | → Integer | The page currently being shown (0 = first page). |
-| Is On First Page (`IsOnFirstPage`) | Pure | → Boolean | True when the first page is shown — handy for greying out a "previous" prompt. |
-| Is On Last Page (`IsOnLastPage`) | Pure | → Boolean | True when the last page is shown — handy for greying out a "next" prompt. |
-| Resolve Target Mesh (`ResolveTargetMesh`) | Pure | → Mesh Component | The mesh this component draws onto: the Target Mesh if set, otherwise the actor's first mesh component. |
-| Get Page Material (`GetPageMaterial`) | Pure | → Material Instance Dynamic | The dynamic material instance created for the current page, if the page has been drawn yet. |
+Category **Inkwell → Page**.
+
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Set Document** | `New Document` (Ink Page Document), `New Page Index` (Integer, default 0) | — | Swaps in a different document and shows the given page. |
+| **Set Page Index** | `New Page Index` (Integer) | Boolean | Shows a specific page. Out-of-range values are clamped. True if the page actually changed. |
+| **Next Page** | — | Boolean | Turns to the next page. False when already on the last page, unless Loop Pages is on. |
+| **Previous Page** | — | Boolean | Turns to the previous page. False when already on the first page, unless Loop Pages is on. |
+| **Refresh** | — | — | Re-bakes and re-applies the current page. Call after editing the document at runtime. |
+| **Get Page Count** *(pure)* | — | Integer | Pages in the current document, 0 if none is assigned. |
+| **Get Current Page Index** *(pure)* | — | Integer | The page being shown. |
+| **Is On First Page** *(pure)* | — | Boolean | True when the first page is shown — handy for graying out a "previous" prompt. |
+| **Is On Last Page** *(pure)* | — | Boolean | True when the last page is shown. |
+| **Get Effective Page Size Cm** *(pure)* | — | Vector 2D | The size this page is actually drawn at: the document's size times Page Scale. A4 when no document is assigned. |
+| **Apply Page Size** | — | — | Re-applies the paper's physical size without re-baking the ink. Far cheaper than Refresh, and what a Page Scale change needs. |
+| **Resolve Target Mesh** *(pure)* | — | Mesh Component | The mesh this component draws onto: Target Mesh if set, otherwise the actor's first mesh. |
+| **Get Page Material** *(pure)* | — | Material Instance Dynamic | The dynamic instance created for the current page, if it has been drawn yet. |
+| **Get Procedural Paper Mesh** *(pure)* | — | Static Mesh Component | The sheet spawned by Procedural Paper, or None when the actor supplies its own mesh. |
 
 ## Ink Page Stack
 
-`UInkPageStackComponent` — shows a document as a physical pile of paper: one sheet mesh per
-page, the current page on top, the rest fanned untidily underneath. Turning a page slides
-the sheets to their new places in the pile. It **extends Ink Page Display**, so everything
-in the section above — all properties, every function, On Page Changed — applies unchanged;
-this section lists only what the stack adds. Full guide: [Ink Page Stack](/plugins/inkwell/components/page-stack).
+`UInkPageStackComponent`, display name **Ink Page Stack** — extends Ink Page Display, so
+**every property, event and function above is available on it unchanged**. It presents the
+document as a physical pile of sheets, one mesh per page, and overrides **Refresh**,
+**Resolve Target Mesh** and **Apply Page Size** to lay out the pile.
 
-With more pages than Max Visible Sheets, the stack shows a sliding window of sheets around
-the current page and quietly re-bakes the bottom-most sheet as you read, so the pile always
-looks right from the top.
+### Additional properties
 
-### Properties
+Category **Inkwell → Stack**.
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Page Size Cm (`PageSizeCm`) | Vector 2D | 21.0 × 29.7 (A4) | Sheet size in real-world centimetres. The sheet mesh is a 100 cm plane. Minimum 0.1. |
-| Sheet Gap (`SheetGap`) | Float | 0.35 | Vertical gap between sheets in the pile, in centimetres. Minimum 0.01. |
-| Fan Splay (`FanSplay`) | Float | 1.5 | How far each deeper sheet splays sideways, in centimetres. Alternates left/right per sheet. |
-| Fan Angle (`FanAngle`) | Float | 4.0 | How far each deeper sheet twists, in degrees. Alternates clockwise/anticlockwise per sheet. |
-| Stack Yaw (`StackYaw`) | Float | 0.0 | Spins the whole pile about its own normal, in degrees, so the writing reads upright for your actor. Clamped −360 to 360. |
-| Stack Offset (`StackOffset`) | Vector | (0, 0, 0) | Where the pile sits relative to the actor's root component. |
-| Flip Interp Speed (`FlipInterpSpeed`) | Float | 8.0 | How quickly sheets glide to their new place in the pile when a page is turned. Minimum 0.1. |
-| Max Visible Sheets (`MaxVisibleSheets`) | Integer | 16 | Advanced. Upper bound on how many sheet meshes exist at once. Clamped 1–64. |
-| Sheet Mesh (`SheetMesh`) | Static Mesh | None | Advanced. Sheet mesh override. Unset = the project's Inkwell page sheet mesh. Needs clean 0–1 UVs. |
-| Sheets Block Traces (`bSheetsBlockTraces`) | Boolean | true | Advanced. Give sheets query-only collision so line-trace interaction (e.g. Ink Page Interactor) can focus the pile. Sheets answer only the Sheet Trace Channel — they never block or bump the player character, physics, or the camera. Off = no collision at all. |
-| Sheet Trace Channel (`SheetTraceChannel`) | Collision Channel | Visibility | Advanced. The one collision channel the sheets respond to (every other channel is ignored). Match it to your interactor's Trace Channel — Visibility by default, same as the bundled Ink Page Interactor. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Sheet Gap** (`SheetGap`) | Float | 0.35 | Read / Write | Vertical gap between sheets in the pile, in centimeters. Minimum 0.01. |
+| **Fan Splay** (`FanSplay`) | Float | 0.35 | Read / Write | How far each deeper sheet splays sideways, in centimeters, alternating left/right. |
+| **Fan Angle** (`FanAngle`) | Float | 0.8 | Read / Write | How far each deeper sheet twists, in degrees, alternating direction. |
+| **Stack Yaw** (`StackYaw`) | Float | 0.0 | Read / Write | Spins the whole pile about its own normal so the writing reads upright for your actor. |
+| **Stack Offset** (`StackOffset`) | Vector | (0, 0, 0) | Read / Write | Where the pile sits relative to the actor's root component. |
+| **Flip Interp Speed** (`FlipInterpSpeed`) | Float | 8.0 | Read / Write | How quickly sheets merely shuffling one place in the pile glide to their new slot. |
+| **Animate Page Turns** (`bAnimatePageTurns`) | Boolean | `true` | Read / Write | Fly the turned sheet around the edge of the pile instead of snapping it into place. |
+| **Page Turn Duration** (`PageTurnDuration`) | Float | 0.45 | Read / Write | Seconds for one page turn, lift-off to landing. Editable while Animate Page Turns is on. |
+| **Page Turn Lift Cm** (`PageTurnLiftCm`) | Float | 4.0 | Read / Write | How far above the pile the turning sheet rises at the peak of its arc. |
+| **Max Visible Sheets** (`MaxVisibleSheets`) | Integer | 16 | Read / Write | Upper bound on sheet meshes. Longer documents show a sliding window and re-bake the hidden bottom sheet as you read. Clamped 1–64. *Advanced.* |
+| **Sheet Mesh** (`SheetMesh`) | Static Mesh | None | Read / Write | Sheet mesh override. Unset uses the project's Inkwell page sheet mesh. Needs clean 0–1 UVs. *Advanced.* |
+| **Sheets Block Traces** (`bSheetsBlockTraces`) | Boolean | `true` | Read / Write | Give sheets query-only collision so line-trace interaction can focus the pile. *Advanced.* |
+| **Sheet Trace Channel** (`SheetTraceChannel`) | Collision Channel | `Visibility` | Read / Write | The one channel sheets respond to; every other channel is ignored. Match it to your interactor's Trace Channel. *Advanced.* |
 
-### Functions
+### Additional function
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Get Sheets (`GetSheets`) | Pure | → Array of Static Mesh Component | The sheet meshes currently in the pile, top of the pile first. |
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Get Sheets** *(pure)* | — | Array of Static Mesh Component | The sheet meshes currently in the pile, top of the pile first. |
 
-Plus the entire [Ink Page Display API](#ink-page-display) (inherited).
+<Note>
+**Procedural Paper** is grayed out on a stack. A stack always spawns its own sheets, so the
+inherited fallback sheet would only duplicate them.
+</Note>
 
-## Ink Page Actor
+## Ink Page (actor)
 
-`AInkPageActor` (display name **Ink Page**) — a placeable sheet of paper that shows a Page
-Document: drag it into the level, pick a document, done. It deliberately contains no input
-or interaction logic; call its page functions from your own systems and implement its
-events to react. Full guide: [Ink Page Actor](/plugins/inkwell/components/page-actor).
-
-### Components
-
-Visible in the actor's hierarchy and readable from Blueprint (read-only):
-
-| Component | Type | What it does |
-| --- | --- | --- |
-| Page Root (`PageRoot`) | Scene Component | Scene root. Move/rotate the actor with this; the sheet below it carries the page size. |
-| Page Mesh (`PageMesh`) | Static Mesh Component | The paper sheet itself. Uses the Inkwell page sheet mesh unless you assign your own. |
-| Page Display (`PageDisplay`) | Ink Page Display Component | Does the actual work: bakes the document's page and applies it to the sheet. All the actor's page functions forward to it. |
+`AInkPageActor`, display name **Ink Page** — a placeable sheet of paper. Blueprintable: make
+a child Blueprint and implement the events below. Its functions forward to the display
+component it owns.
 
 ### Properties
 
-Editable on the actor, readable from Blueprint (read-only):
-
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Page Size Cm (`PageSizeCm`) | Vector 2D | 21.0 × 29.7 (A4) | Real-world size of the sheet in centimetres. The page sheet mesh is a 100 cm plane, so this simply scales it — swap in Letter (21.6 × 27.9) or any custom size and the page content re-fits automatically. Minimum 0.1. |
-| Page Yaw (`PageYaw`) | Float | 0.0 | Spin the sheet about its own normal, in degrees, so the writing reads upright for your mesh. Clamped −360 to 360. |
-| Auto Size Sheet (`bAutoSizeSheet`) | Boolean | true | Let Page Size Cm and Page Yaw drive the sheet. Turn off to position the mesh entirely by hand. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Page Root** (`PageRoot`) | Scene Component | created in constructor | Read | Scene root. Move and rotate the actor with this. |
+| **Page Mesh** (`PageMesh`) | Static Mesh Component | created in constructor | Read | The paper sheet. Uses the Inkwell page sheet mesh unless you assign your own. |
+| **Page Display** (`PageDisplay`) | Ink Page Display | created in constructor | Read | Does the actual work. Reach it for anything the forwarding functions do not cover — Page Scale, the Loop Pages toggle, On Page Size Changed. |
+| **Page Yaw** (`PageYaw`) | Float | 0.0 | Read | Spins the sheet about its own normal so the writing reads upright for your mesh. Clamped -360–360. |
+| **Auto Size Sheet** (`bAutoSizeSheet`) | Boolean | `true` | Read | Let the page's own size and Page Yaw drive the sheet. Off positions the mesh entirely by hand. |
 
 ### Functions
 
-These forward to the actor's Page Display component:
+Category **Inkwell → Page**.
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Set Document (`SetDocument`) | Callable | New Document, New Page Index (default 0) | Swaps in a different Page Document and shows the given page. |
-| Set Page Index (`SetPageIndex`) | Callable | New Page Index → Boolean | Shows a specific page (0 = first page). Out-of-range values are clamped. Returns true if the page actually changed. |
-| Next Page (`NextPage`) | Callable | → Boolean | Turns to the next page. Returns false when already on the last page (unless Loop Pages is on the Page Display component). |
-| Previous Page (`PreviousPage`) | Callable | → Boolean | Turns to the previous page. Returns false when already on the first page (unless Loop Pages is on the Page Display component). |
-| Refresh (`Refresh`) | Callable | — | Re-bakes and re-applies the current page. Call after editing the document at runtime. |
-| Get Page Count (`GetPageCount`) | Pure | → Integer | How many pages the assigned document has (0 if none). |
-| Get Current Page Index (`GetCurrentPageIndex`) | Pure | → Integer | The page currently shown (0 = first page). |
-| Get Document (`GetDocument`) | Pure | → Ink Page Document | The Page Document currently assigned to this sheet. |
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Set Document** | `New Document` (Ink Page Document), `New Page Index` (Integer, default 0) | — | Swaps in a different document and shows the given page. |
+| **Set Page Index** | `New Page Index` (Integer) | Boolean | Shows a specific page; out-of-range values are clamped. |
+| **Next Page** | — | Boolean | Turns forward. False on the last page. |
+| **Previous Page** | — | Boolean | Turns back. False on the first page. |
+| **Refresh** | — | — | Re-bakes and re-applies the current page. |
+| **Get Page Count** *(pure)* | — | Integer | Pages in the assigned document, 0 if none. |
+| **Get Current Page Index** *(pure)* | — | Integer | The page currently shown. |
+| **Get Document** *(pure)* | — | Ink Page Document | The document assigned to this sheet. |
+| **Notify Interacted** | `Interactor` (Actor) | — | Call from your interaction code when the player uses this page. Raises **On Interacted**. |
+| **Notify Focus Changed** | `Focused` (Boolean), `Interactor` (Actor) | — | Call from your interaction code when the page gains or loses focus. Raises **On Focus Changed**. |
 
-Hooks for your own interaction system:
+### Implementable events
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Notify Interacted (`NotifyInteracted`) | Callable | Interactor (Actor) | Call from your interaction code when the player uses this page. Triggers the On Interacted event. |
-| Notify Focus Changed (`NotifyFocusChanged`) | Callable | Focused (Boolean), Interactor (Actor) | Call from your interaction code when the page gains or loses the player's focus. Triggers the On Focus Changed event. |
+Override these in a Blueprint child of Ink Page.
 
-### Events
-
-These are Blueprint-implementable events — override them in a Blueprint subclass of Ink Page:
-
-| Event | Payload | Fires when |
-| --- | --- | --- |
-| On Page Changed (`OnPageChanged`) | New Page Index (Integer), Page Count (Integer) | A different page is shown — play a page-turn sound, update a "3 / 12" label, etc. |
-| On Interacted (`OnInteracted`) | Interactor (Actor) | Your code calls Notify Interacted — open your reading UI, turn a page, anything. |
-| On Focus Changed (`OnFocusChanged`) | Focused (Boolean), Interactor (Actor) | Your code calls Notify Focus Changed — show or hide a "Read" prompt, highlight the sheet, etc. |
+| Event | Signature | Runs when |
+|---|---|---|
+| **On Page Changed** | `New Page Index` (Integer), `Page Count` (Integer) | A different page is shown — play a page-turn sound, update a "3 / 12" label. |
+| **On Interacted** | `Interactor` (Actor) | Your code calls **Notify Interacted**. |
+| **On Focus Changed** | `Focused` (Boolean), `Interactor` (Actor) | Your code calls **Notify Focus Changed** — show or hide a "Read" prompt, highlight the sheet. |
 
 ## Ink Page Reader
 
-`UInkPageReaderComponent` — put this on your player (pawn, character, or controller) to let
-them pick up and read a page: Begin Reading smoothly floats the page up in front of the
-camera, End Reading floats it back to exactly where it was lying. It contains **no input
-handling whatsoever** — it is a pure "snap into view" service driven by your own interaction
-code or by the bundled [Ink Page Interactor](#ink-page-interactor). Full guide:
-[Ink Page Reader](/plugins/inkwell/components/reader).
+`UInkPageReaderComponent`, display name **Ink Page Reader** — put it on a pawn, character or
+controller to float a page up in front of the camera. It contains no input handling at all.
 
 ### Properties
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| View Distance (`ViewDistance`) | Float | 45.0 | How far in front of the camera the page floats while being read, in centimetres. Minimum 1.0. |
-| View Offset (`ViewOffset`) | Vector 2D | (0.0, −2.0) | Nudges the reading page sideways (X = right) and vertically (Y = up) on screen, in centimetres. |
-| Reading Rotation Offset (`ReadingRotationOffset`) | Rotator | (Pitch 0, Yaw 90, Roll 90) | Extra rotation composed onto the camera rotation so the sheet's printed face points at the viewer with the text upright. The default is tuned for the Inkwell page sheet (a flat plane whose text faces up) — override it if you read from your own mesh. |
-| Blend Time (`BlendTime`) | Float | 0.3 | How long the page takes to float up to the eyes and back, in seconds. 0 snaps instantly. |
-| Follow Camera (`bFollowCamera`) | Boolean | true | Keep the page glued to the view while reading, so it stays centred as the player looks around. |
-| Lock Movement While Reading (`bLockMovementWhileReading`) | Boolean | true | Stop the reading pawn's movement while a page is held up: move input is ignored and characters cannot jump. Movement returns the moment the page is put back (End Reading), not when it finishes floating down. |
-| Lock Look While Reading (`bLockLookWhileReading`) | Boolean | true | Freeze the camera while a page is held up: look input is ignored so the view cannot rotate while the page is being inspected. Released together with the movement lock the moment the page is put back (End Reading). |
+Category **Inkwell → Reading**.
+
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **View Distance** (`ViewDistance`) | Float | 45.0 | Read / Write | How far in front of the camera the page floats, in centimeters. Minimum 1. |
+| **View Offset** (`ViewOffset`) | Vector 2D | (0.0, -2.0) | Read / Write | Nudges the reading page sideways (X = right) and vertically (Y = up) on screen, in centimeters. |
+| **Reading Rotation Offset** (`ReadingRotationOffset`) | Rotator | Pitch 0, Yaw 90, Roll 90 | Read / Write | Extra rotation composed onto the camera rotation so the printed face points at the viewer with the text upright. Tuned for the Inkwell page sheet; override it when reading from your own mesh. |
+| **Blend Time** (`BlendTime`) | Float | 0.3 | Read / Write | Seconds for the page to float up and back. 0 snaps instantly. |
+| **Follow Camera** (`bFollowCamera`) | Boolean | `true` | Read / Write | Keep the page glued to the view so it stays centered as the player looks around. |
+| **Lock Movement While Reading** (`bLockMovementWhileReading`) | Boolean | `true` | Read / Write | Ignore move input and disable jumping while a page is held up. Released the moment **End Reading** is called, not when the page finishes floating down. |
+| **Lock Look While Reading** (`bLockLookWhileReading`) | Boolean | `true` | Read / Write | Ignore look input while a page is held up. Released with the movement lock. |
 
 ### Events
 
-| Event | Payload | Fires when |
-| --- | --- | --- |
-| On Reading Started (`OnReadingStarted`) | Page (Ink Page Display Component) | A page starts being read — hide crosshairs, show a "close" prompt, play a paper rustle. |
-| On Reading Ended (`OnReadingEnded`) | Page (Ink Page Display Component) | The page is put back down — restore your HUD here. Page can be None if the page actor was destroyed while it was being read. |
+| Event | Signature | Fires when |
+|---|---|---|
+| **On Reading Started** (`OnReadingStarted`) | `Page` (Ink Page Display) | A page starts being read — hide the crosshair, show a "close" prompt, play a paper rustle. |
+| **On Reading Ended** (`OnReadingEnded`) | `Page` (Ink Page Display) | The page is put back down. `Page` can be None if the page actor was destroyed mid-read. |
 
 ### Functions
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Begin Reading (`BeginReading`) | Callable | Page (Ink Page Display Component) → Boolean | Floats the given page up in front of the camera. Returns false if the page is invalid or something is already being read. Calling it while a previous page is still floating back down is fine — the new read takes over cleanly. |
-| Begin Reading Actor (`BeginReadingActor`) | Callable | Page Actor (Actor) → Boolean | Same as Begin Reading, but finds the Ink Page Display component on the given actor for you. Returns false for a null actor or one with no display component. |
-| End Reading (`EndReading`) | Callable | — | Puts the page back down: it blends back to exactly where it was before reading. |
-| Is Reading (`IsReading`) | Pure | → Boolean | True while a page is held up for reading (including while it is still floating up). |
-| Get Current Page (`GetCurrentPage`) | Pure | → Ink Page Display Component | The page currently being read, or None when nothing is. |
-| Next Page (`NextPage`) | Callable | → Boolean | Turns the page being read to its next page. Returns false when not reading or already on the last page. |
-| Previous Page (`PreviousPage`) | Callable | → Boolean | Turns the page being read to its previous page. Returns false when not reading or already on the first page. |
-
-<Info>
-While a page is held, the reader disables physics and collision on the page actor and
-remembers everything needed to undo it; End Reading restores the actor exactly, physics
-included.
-</Info>
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Begin Reading** | `Page` (Ink Page Display) | Boolean | Floats the given page up in front of the camera. False if the page is invalid or something is already being read. Starting a read while a previous page is still floating down is fine. |
+| **Begin Reading Actor** | `Page Actor` (Actor) | Boolean | Same, but finds the Ink Page Display component on the actor for you. |
+| **End Reading** | — | — | Puts the page back down: it blends to exactly where it was before reading. |
+| **Is Reading** *(pure)* | — | Boolean | True while a page is held up, including while it is still floating up. |
+| **Get Current Page** *(pure)* | — | Ink Page Display | The page being read, or None. |
+| **Next Page** | — | Boolean | Turns the page being read forward. False when not reading, or already on the last page. |
+| **Previous Page** | — | Boolean | Turns the page being read back. False when not reading, or already on the first page. |
 
 ## Ink Page Interactor
 
-`UInkPageInteractorComponent` — the reference "look at a page, press a key, read it"
-interaction: line-traces from the player's view for an actor carrying an Ink Page Display
-component, raises a focus event for your "Read" prompt UI, and drives an Ink Page Reader
-(found on the owner, or created automatically at Begin Play) to snap the page into view.
-
-It is a self-contained demo implementation so pages are readable out of the box; production
-projects with their own interaction system should skip it and call
-[Ink Page Reader](#ink-page-reader) directly. See [Integration](/plugins/inkwell/guides/integration).
+`UInkPageInteractorComponent`, display name **Ink Page Interactor** — the reference
+"look at a page, press a key, read it" implementation. It line-traces from the player's
+view, raises a focus event for your prompt UI, and drives an Ink Page Reader found or
+created on the same actor.
 
 ### Properties
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Interaction Distance (`InteractionDistance`) | Float | 300.0 | How far away (in centimetres) a page can be and still be picked up by the focus trace. |
-| Trace Channel (`TraceChannel`) | Collision Channel | Visibility | Collision channel the focus trace runs on. Visibility suits most projects (and matches the stack's Sheet Trace Channel default). |
-| Focus Check Interval (`FocusCheckInterval`) | Float | 0.1 | Seconds between focus traces. 0 traces every tick; the default is plenty for a reticle prompt. |
-| Draw Debug Trace (`bDrawDebugTrace`) | Boolean | false | Draw each focus trace in the world: green when it hits a readable page, red otherwise, with a small ring at the impact point. Has no effect in Shipping or Test builds. |
-| Enable Default Input (`bEnableDefaultInput`) | Boolean | true | Bind the demo keys on the owning pawn: **E** interacts, **Q** closes, **Left arrow / mouse wheel down** turns back, **Right arrow / mouse wheel up** turns forward. Turn this off when integrating your own input. |
+Category **Inkwell → Interaction**.
 
-### Events
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Interaction Distance** (`InteractionDistance`) | Float | 300.0 | Read / Write | How far away a page can be and still be picked up by the focus trace, in centimeters. |
+| **Trace Channel** (`TraceChannel`) | Collision Channel | `Visibility` | Read / Write | Channel the focus trace runs on. |
+| **Focus Check Interval** (`FocusCheckInterval`) | Float | 0.1 | Read / Write | Seconds between focus traces. 0 traces every tick. |
+| **Draw Debug Trace** (`bDrawDebugTrace`) | Boolean | `false` | Read / Write | Draw each focus trace: green when it hits a readable page, red otherwise, with a ring at the impact point. No effect in Shipping or Test builds. |
+| **Enable Default Input** (`bEnableDefaultInput`) | Boolean | `true` | Read / Write | Bind the demo keys on the owning pawn — **E** interacts, **Q** closes, **Left** / mouse wheel down turns back, **Right** / mouse wheel up turns forward. Turn off when wiring your own input. |
 
-| Event | Payload | Fires when |
-| --- | --- | --- |
-| On Focus Changed (`OnFocusChanged`) | New Focus (Ink Page Display Component) | The page under the player's view changes. New Focus is the page display now being looked at, or None when focus was lost (including when reading begins). |
+### Event
+
+| Event | Signature | Fires when |
+|---|---|---|
+| **On Focus Changed** (`OnFocusChanged`) | `New Focus` (Ink Page Display) | The page under the view changes. `New Focus` is None when focus is lost — including when reading begins. |
 
 ### Functions
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Interact (`Interact`) | Callable | — | Toggles reading: opens the currently focused page, or closes the page being read. |
-| Stop Reading (`StopReading`) | Callable | — | Puts the page being read back down. Does nothing when nothing is being read. |
-| Next Page (`NextPage`) | Callable | → Boolean | Turns the page being read forward. Works only while reading; returns false otherwise. |
-| Previous Page (`PreviousPage`) | Callable | → Boolean | Turns the page being read back. Works only while reading; returns false otherwise. |
-| Get Focused Page (`GetFocusedPage`) | Pure | → Ink Page Display Component | The page display currently under the player's view, or None. Always None while reading. |
-| Is Reading (`IsReading`) | Pure | → Boolean | True while a page is snapped into view for reading. |
-| Get Reader (`GetReader`) | Pure | → Ink Page Reader Component | The reader component this interactor drives (found or created on the owner at Begin Play). |
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Interact** | — | — | Toggles reading: opens the focused page, or closes the page being read. |
+| **Stop Reading** | — | — | Puts the page being read back down. Does nothing when nothing is being read. |
+| **Next Page** | — | Boolean | Turns the page being read forward. False when not reading. |
+| **Previous Page** | — | Boolean | Turns the page being read back. False when not reading. |
+| **Get Focused Page** *(pure)* | — | Ink Page Display | The page under the player's view, or None. Always None while reading. |
+| **Is Reading** *(pure)* | — | Boolean | True while a page is snapped into view. |
+| **Get Reader** *(pure)* | — | Ink Page Reader | The reader component this interactor drives, found or created on the owner at Begin Play. |
 
-## Ink Page Widget (UMG)
+## Ink Page (UMG widget)
 
-`UInkPageWidget` (palette name **Ink Page**) — shows a Page Document on screen as a UMG
-widget, for reading a note in a full-screen UI instead of on a mesh in the world. It builds
-the page with exactly the same code that bakes pages onto meshes, so an on-screen page and
-an in-world page look identical. The page is scaled to fit the slot you give it, keeping its
-aspect ratio. Full guide: [Ink Page Widget](/plugins/inkwell/components/page-widget).
+`UInkPageWidget`, display name **Ink Page**, palette category **Inkwell** — shows a page on
+screen instead of on a mesh. It builds the page with the same code the mesh bake uses, and
+scales it to fit its slot while keeping the authored aspect ratio.
 
 ### Properties
 
-Editable in the UMG Designer, readable from Blueprint (read-only — use Set Document /
-Set Page Index to change them at runtime):
+All four are `BlueprintReadOnly`; change them with **Set Document** / **Set Page Index**.
 
-| Property | Type | Default | What it does |
-| --- | --- | --- | --- |
-| Document (`Document`) | Ink Page Document | None | The authored page content to show. |
-| Page Index (`PageIndex`) | Integer | 0 | Which page of the document is shown (0 = the first page). Minimum 0. |
-| Show Paper (`bShowPaper`) | Boolean | true | Draw the document's paper texture behind the writing. Turn it off for ink on your own background. |
-| Apply Ink Tint (`bApplyInkTint`) | Boolean | true | Advanced. Apply the document's Ink Tint and Ink Strength to the writing, matching how the page material tints ink in the world. |
+| Property | Type | Default | Access | What it does |
+|---|---|---|---|---|
+| **Document** (`Document`) | Ink Page Document | None | Read | The authored content to show. |
+| **Page Index** (`PageIndex`) | Integer | 0 | Read | Which page is shown. Minimum 0. |
+| **Show Paper** (`bShowPaper`) | Boolean | `true` | Read | Draw the document's paper behind the writing. Off leaves ink over your own background. |
+| **Apply Ink Tint** (`bApplyInkTint`) | Boolean | `true` | Read | Apply the document's Ink Tint and Ink Strength to the writing, matching the world material. *Advanced.* |
 
 ### Functions
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Set Document (`SetDocument`) | Callable | New Document, New Page Index (default 0) | Swaps in a different Page Document and shows the given page. |
-| Set Page Index (`SetPageIndex`) | Callable | New Page Index → Boolean | Shows a specific page (0 = first page). Out-of-range values are clamped. Returns true if the page actually changed. |
-| Next Page (`NextPage`) | Callable | → Boolean | Turns to the next page. Returns false when already on the last page. |
-| Previous Page (`PreviousPage`) | Callable | → Boolean | Turns to the previous page. Returns false when already on the first page. |
-| Refresh (`Refresh`) | Callable | — | Rebuilds the page. Call after editing the document at runtime. |
-| Get Page Count (`GetPageCount`) | Pure | → Integer | How many pages the assigned document has (0 if none). |
-| Get Current Page Index (`GetCurrentPageIndex`) | Pure | → Integer | The page currently shown (0 = first page). |
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Set Document** | `New Document` (Ink Page Document), `New Page Index` (Integer, default 0) | — | Swaps in a different document and shows the given page. |
+| **Set Page Index** | `New Page Index` (Integer) | Boolean | Shows a specific page; out-of-range values are clamped. True if it changed. |
+| **Next Page** | — | Boolean | Turns forward. False on the last page. |
+| **Previous Page** | — | Boolean | Turns back. False on the first page. |
+| **Refresh** | — | — | Rebuilds the page. Call after editing the document at runtime. |
+| **Get Page Count** *(pure)* | — | Integer | Pages in the assigned document, 0 if none. |
+| **Get Current Page Index** *(pure)* | — | Integer | The page currently shown. |
 
-The widget has no Blueprint-assignable events.
+<Note>
+The widget does not loop: **Next Page** on the last page returns false and does nothing.
+Looping is a display-component feature.
+</Note>
 
-## Render Library and Page Cache
+## Ink Page Render Library
 
-Two lower-level classes round out the Blueprint surface. Most projects never call them —
-the components above use them internally — but they are there for custom setups (decals,
-your own UI, one-off bakes). The pipeline itself is documented in
-[Rendering](/plugins/inkwell/reference/rendering).
+`UInkPageRenderLibrary` — a Blueprint function library, so every node here is a free node
+with no target pin. Category **Inkwell → Page Content**. `World Context Object` pins are
+hidden and filled in for you.
 
-### Ink Page Render Library
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Get Page Count** *(pure)* | `Document` (Ink Page Document) | Integer | Pages in a document, 0 for a null document. |
+| **Get Page Ink Texture** | `Document` (Ink Page Document), `Page Index` (Integer) | Texture Render Target 2D | The cached ink texture for one page, baking it on first request. In an editor world (no cache) it bakes uncached into the transient package. |
+| **Apply Page To Mesh** | `Mesh Component` (Mesh Component), `Document` (Ink Page Document), `Page Index` (Integer), `Material Slot` (Integer, default 0) | Material Instance Dynamic | Creates a dynamic instance of the page ink material, feeds it the baked ink and the document's paper settings, and assigns it to the slot. If the page ink material cannot be loaded it falls back to the mesh's existing material, so the failure is visible rather than invisible. |
+| **Bake Page To New Target** | `Document` (Ink Page Document), `Page Index` (Integer) | Texture Render Target 2D | Bakes a page into a fresh, uncached render target you own. Game thread only. The target is outered to the world context object when there is one, so it lives as long as the object that asked for it. |
+| **Bake Page To Target** | `Document` (Ink Page Document), `Page Index` (Integer), `Target` (Texture Render Target 2D) | Boolean | Bakes into an existing render target. It should match the document's clamped page size. |
+| **Create Page Material** | `Outer` (Object), `Document` (Ink Page Document), `Page Index` (Integer) | Material Instance Dynamic | The page material instance for a page without touching a mesh — UMG, decals, custom setups. Returns None if the page ink material cannot be loaded. |
+| **Clear Page Cache** | `Document` (Ink Page Document) | — | Drops this world's cached bakes for a document. |
+| **Get Page Ink Brush** | `Document` (Ink Page Document), `Page Index` (Integer), `Brush Size` (Vector 2D) | Slate Brush | A Slate brush of one page's ink at the given size, for UMG Image widgets. |
 
-`UInkPageRenderLibrary` — a Blueprint function library that bakes document pages (rich text
-+ images) into ink render targets and applies them to meshes through the configured page
-ink material ([Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)). The ink texture
-is content-over-transparent; the material multiplies it over the paper so it reads as
-ink/print rather than a sticker.
+## Ink Page Cache Subsystem
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Get Page Count (`GetPageCount`) | Pure | Document → Integer | Number of pages in a document (0 for a null document). |
-| Get Page Ink Texture (`GetPageInkTexture`) | Callable | Document, Page Index → Texture Render Target 2D | Returns (baking on first request) the cached ink texture for one page. |
-| Apply Page To Mesh (`ApplyPageToMesh`) | Callable | Mesh Component, Document, Page Index, Material Slot (default 0) → Material Instance Dynamic | Sets up a mesh to display one page: creates a dynamic instance of the page ink material, feeds it the baked ink plus the document's paper settings, and assigns it to the given slot. The mesh needs clean 0–1 UVs across the page face. |
-| Bake Page To New Target (`BakePageToNewTarget`) | Callable | Document, Page Index → Texture Render Target 2D | Bakes a page into a fresh render target you own (uncached). Game thread only. |
-| Bake Page To Target (`BakePageToTarget`) | Callable | Document, Page Index, Target → Boolean | Bakes a page into an existing render target (should match the document's Page Size Pixels). |
-| Create Page Material (`CreatePageMaterial`) | Callable | Outer, Document, Page Index → Material Instance Dynamic | Creates a page material instance for a page without touching a mesh (UMG, decals, custom setups). |
-| Clear Page Cache (`ClearPageCache`) | Callable | Document | Drops cached bakes for a document in this world. Call after changing it at runtime. |
-| Get Page Ink Brush (`GetPageInkBrush`) | Callable | Document, Page Index, Brush Size (Vector 2D) → Slate Brush | A Slate brush for one page's ink, for UMG Image widgets. |
+`UInkPageCacheSubsystem` — a World Subsystem holding baked ink render targets, keyed on
+document path + page index + content revision. It exists in **Game and PIE worlds only**;
+get it with **Get World Subsystem** and the Ink Page Cache Subsystem class.
 
-### Ink Page Cache Subsystem
+| Node | Parameters | Returns | What it does |
+|---|---|---|---|
+| **Clear Cache** | `Document` (Ink Page Document, default None) | — | Drops every cached bake for one document, or for all documents when left empty. |
 
-`UInkPageCacheSubsystem` — the per-world cache of baked page ink textures (game/PIE only),
-keyed on document path + page + content revision so editor-side edits between PIE runs
-regenerate cleanly.
+## Inkwell Settings accessors
 
-| Function | Kind | Signature | Behavior |
-| --- | --- | --- | --- |
-| Clear Cache (`ClearCache`) | Callable | Document (default None) | Drops every cached bake for one document, or for all documents when None. |
+`UInkwellSettings`, category **Inkwell → Settings**. Static pure nodes that load the
+configured asset, or return None plus a one-per-session warning naming the setting to fix.
+See [Project Settings](/plugins/inkwell/reference/settings).
 
-### Inkwell Settings accessors
+| Node | Returns |
+|---|---|
+| **Get Page Ink Material** | Material Interface |
+| **Get Page Preview Material** | Material Interface |
+| **Get Page Sheet Mesh** | Static Mesh |
+| **Get Default Paper Texture** | Texture 2D |
+| **Get Blank Ink Texture** | Texture 2D |
+| **Get Default Page Font** | Font |
 
-`UInkwellSettings` also exposes pure Blueprint getters for the project-configured assets:
-Get Page Ink Material (`GetPageInkMaterial`), Get Page Preview Material
-(`GetPagePreviewMaterial`), Get Page Sheet Mesh (`GetPageSheetMesh`), Get Default Paper
-Texture (`GetDefaultPaperTexture`), Get Blank Ink Texture (`GetBlankInkTexture`), and
-Get Default Page Font (`GetDefaultPageFont`). Each loads the configured asset and warns
-once per session, naming the setting, if it is missing. The settings themselves are
-documented in [Settings](/plugins/inkwell/reference/settings).
+## Structs
+
+Every struct here is Blueprint-constructible: right-click → **Make** *(struct)*, or split
+the pin.
+
+### Ink Page Spec
+
+`FInkPageSpec` — one page. Used by **Add Page**, **Set Page** and **Get Page**.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Layers** (`Layers`) | Array of [Ink Page Layer](#ink-page-layer) | Empty | Everything drawn on this page, back to front: index 0 is the back, the last entry the front. |
+| **Paper Override** (`PaperOverride`) | Texture 2D | None | Overrides the document's paper for this page only. None uses the document's. |
+
+<Note>
+A page you build yourself with an empty Layers array is normalized when you hand it to
+**Add Page** or **Set Page**: Inkwell guarantees it has a Text layer, so a page built from
+Blueprint can always show markup.
+</Note>
+
+### Ink Page Layer
+
+`FInkPageLayer` — one entry in a page's stack. Exactly one payload is used, chosen by
+**Type**; the other two are ignored.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Type** (`Type`) | [Ink Layer Type](#ink-layer-type) | `Image` | What this layer draws. |
+| **Name** (`Name`) | String | Empty | Shown in the Page Editor's layer list. Blank falls back to a name derived from the type. |
+| **Visible** (`bVisible`) | Boolean | `true` | Hidden layers are skipped by the bake and by the editor preview alike. |
+| **Locked** (`bLocked`) | Boolean | `false` | Locked layers cannot be selected or dragged in the Page Editor. Purely an authoring aid — it has no runtime effect. |
+| **Opacity** (`Opacity`) | Float | 1.0 | Multiplies the whole layer's alpha. Clamped 0–1. |
+| **Text** (`Text`) | [Ink Page Text](#ink-page-text) | default | Payload when Type is `Text`. |
+| **Image** (`Image`) | [Ink Page Image](#ink-page-image) | default | Payload when Type is `Image`. |
+| **Drawing** (`Drawing`) | [Ink Drawing](#ink-drawing) | default | Payload when Type is `Drawing`. |
+
+### Ink Page Text
+
+`FInkPageText` — the payload of a Text layer: an independent text box, so one page can hold
+a heading, a body and a signature on three layers with images stacked between them.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Markup** (`Markup`) | String | Empty | Rich-text markup in the UE rich-text format; styled runs carry font, typeface, size and color attributes. Author it in the Page Editor, not by hand. |
+| **Justification** (`Justification`) | Text Justify | `Left` | Left, Center or Right, per text box. |
+| **Position** (`Position`) | Vector 2D | (0, 0) | Top-left of the text box, normalized. Ignored while the box fills the page. |
+| **Size** (`Size`) | Vector 2D | (0, 0) | Normalized size of the box. **Zero or negative on either axis means the layer fills the page inside the document's margins** instead of using its own box. |
+
+### Ink Page Image
+
+`FInkPageImage` — the payload of an Image layer. Positions and sizes are normalized 0–1
+page coordinates.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Texture** (`Texture`) | Texture 2D | None | The image. A layer with no texture draws nothing. |
+| **Position** (`Position`) | Vector 2D | (0.1, 0.1) | Top-left corner of the image box, normalized. |
+| **Size** (`Size`) | Vector 2D | (0.3, 0.0) | Normalized width and height. **Height ≤ 0 keeps the texture's aspect ratio.** |
+| **Rotation Degrees** (`RotationDegrees`) | Float | 0.0 | Rotation about the image's center. |
+| **Opacity** (`Opacity`) | Float | 1.0 | Multiplies the image's alpha. Clamped 0–1. Stacks with the layer's own Opacity. |
+
+### Ink Drawing
+
+`FInkDrawing` — the payload of a Drawing layer.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Strokes** (`Strokes`) | Array of [Ink Stroke](#ink-stroke) | Empty | Ordered list of strokes, oldest first. |
+
+### Ink Stroke
+
+`FInkStroke` — a single continuous mark: one press, drag and release.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Brush** (`Brush`) | [Ink Brush Type](#ink-brush-type) | `Pen` | Which of the five procedural brushes draws this stroke. |
+| **Color** (`Color`) | Linear Color | (0.02, 0.017, 0.025, 1.0) | Ink color. |
+| **Width Px** (`WidthPx`) | Float | 6.0 | Stroke width in page pixels, before pressure. Minimum 0.1; the slider runs 1–80. |
+| **Opacity** (`Opacity`) | Float | 1.0 | Stroke opacity. Clamped 0–1. |
+| **Points** (`Points`) | Array of [Ink Stroke Point](#ink-stroke-point) | Empty | The samples along the stroke, in order. |
+
+### Ink Stroke Point
+
+`FInkStrokePoint` — one sample along a stroke.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Position** (`Position`) | Vector 2f *(single-precision Vector 2D)* | (0, 0) | Normalized page space: (0,0) is top-left, (1,1) bottom-right. |
+| **Pressure** (`Pressure`) | Float | 1.0 | 0–1. Scales width and opacity for brushes that respond to it. |
+
+### Ink Procedural Paper
+
+`FInkProceduralPaper` — settings for paper Inkwell generates itself. Everything is drawn
+procedurally; no image assets are involved, and none ship with the plugin. All the `Px`
+values are in page pixels.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| **Ruling** (`Ruling`) | [Ink Paper Ruling](#ink-paper-ruling) | `Lined` | The ruling drawn across the sheet. |
+| **Paper Color** (`PaperColor`) | Linear Color | (0.96, 0.945, 0.90, 1.0) | The paper stock itself. |
+| **Line Color** (`LineColor`) | Linear Color | (0.55, 0.68, 0.82, 1.0) | The lines, grid or dots. |
+| **Line Spacing Px** (`LineSpacingPx`) | Float | 64.0 | Distance between ruled lines. Minimum 4; the slider runs 16–300. |
+| **Line Thickness Px** (`LineThicknessPx`) | Float | 2.0 | Minimum 0.5; the slider runs 1–12. |
+| **Top Margin Px** (`TopMarginPx`) | Float | 90.0 | Blank margin above the first line and below the last. |
+| **Margin Rule** (`bMarginRule`) | Boolean | `false` | Draw a vertical margin rule down the left of the page — a notebook's red line. |
+| **Margin Rule Color** (`MarginRuleColor`) | Linear Color | (0.85, 0.42, 0.42, 1.0) | Color of that rule. Editable while Margin Rule is on. |
+| **Margin Rule Offset Px** (`MarginRuleOffsetPx`) | Float | 90.0 | How far in from the left edge the rule sits. |
+| **Punch Holes** (`bPunchHoles`) | Boolean | `false` | Punched binder holes down the left edge. |
+| **Hole Count** (`HoleCount`) | Integer | 3 | How many holes run down the page. Clamped 1–16. |
+| **Hole Diameter Px** (`HoleDiameterPx`) | Float | 34.0 | Minimum 2; the slider runs 8–140. |
+| **Hole Inset Px** (`HoleInsetPx`) | Float | 42.0 | Distance from the left edge to the center of the holes. |
+| **Hole Edge Margin Px** (`HoleEdgeMarginPx`) | Float | 220.0 | Blank space above the first hole and below the last. |
+| **Hole Color** (`HoleColor`) | Linear Color | (0.05, 0.05, 0.06, 1.0) | What a hole shows. The paper is an opaque albedo, so holes are drawn rather than cut — a dark color reads as a hole against most backgrounds. |
+| **Grain Strength** (`GrainStrength`) | Float | 0.04 | Subtle per-pixel fibre noise. 0 is perfectly flat stock. Clamped 0–1. |
+| **Grain Seed** (`GrainSeed`) | Integer | 0 | Seed for the grain, so two sheets with identical settings can still differ. *Advanced.* |
+
+## Enums
+
+### Ink Layer Type
+
+`EInkLayerType` — what a layer draws.
+
+| Value | Meaning |
+|---|---|
+| `Text` | A body of rich text. |
+| `Image` | A placed image. |
+| `Drawing` | Freehand strokes. |
+
+### Ink Brush Type
+
+`EInkBrushType` — the look of a stroke. Each brush is drawn procedurally; Inkwell ships no
+brush images.
+
+| Value | Meaning |
+|---|---|
+| `Pen` | Even, opaque line with rounded joins. |
+| `Pencil` | Thin, semi-transparent, lightly grained — darker where strokes overlap. |
+| `Marker` | Thick, flat and fully opaque. |
+| `Crayon` | Broad, heavily grained, slightly ragged at the edges. |
+| `Highlighter` | Wide, very transparent, drawn under the ink it passes over. |
+
+### Ink Paper Mode
+
+`EInkPaperMode` — how a page's paper is produced.
+
+| Value | Meaning |
+|---|---|
+| `Texture` | Use the Paper Texture asset. Unset draws on the page material's flat paper color. |
+| `Procedural` | Generate the paper from the Procedural Paper settings. |
+
+### Ink Paper Ruling
+
+`EInkPaperRuling` — the ruling drawn across generated paper.
+
+| Value | Meaning |
+|---|---|
+| `Plain` | No ruling at all. |
+| `Lined` | Horizontal writing lines. |
+| `Grid` | Horizontal and vertical lines. |
+| `Dotted` | A dot at each grid intersection. |
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+    These nodes put to work: building and rewriting documents while the game runs.
+  </Card>
+  <Card title="Integration" icon="plug" href="/plugins/inkwell/guides/integration">
+    Wiring the reader into an interaction system you already have.
+  </Card>
+  <Card title="Rendering pipeline" icon="gears" href="/plugins/inkwell/reference/rendering">
+    What the render library actually does with a page.
+  </Card>
+  <Card title="Layers" icon="clone" href="/plugins/inkwell/authoring/layers">
+    What the layer structs mean on the page.
+  </Card>
+</CardGroup>

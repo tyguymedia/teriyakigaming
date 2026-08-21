@@ -1,141 +1,329 @@
 ---
 title: "Ink Page Display"
-description: "Show a Page Document on any mesh in your level — the base display component every other Inkwell surface builds on."
+description: "The component every Inkwell surface is built on: point it at a Page Document and a mesh, and the mesh shows that page."
 icon: "note-sticky"
 ---
 
-**Ink Page Display** (`UInkPageDisplayComponent`) is the simplest way to get an authored
-page into the world: drop it on any actor that owns a mesh, point it at a
-[Page Document](/plugins/inkwell/authoring/documents), and the mesh shows that page. The text and images
-are baked into an ink layer and multiplied over the paper texture by the Inkwell page
-material, so the writing reads as ink or print on the surface rather than a decal.
+**Ink Page Display** (`UInkPageDisplayComponent`) is the component that puts an authored
+page into the world. Drop it on any actor, point it at an
+[Ink Page Document](/plugins/inkwell/authoring/documents), and the page is baked into an ink texture and
+multiplied over the paper by the Inkwell page material, so the writing reads as ink on the
+surface rather than a decal stuck to it.
 
-It is an ordinary actor component (find it in **Add Component** under the *Inkwell*
-group), fully usable from Blueprint without any C++, and it works in an empty project.
-It also deliberately contains no input handling — it only exposes a page API
-(**Next Page** / **Previous Page** / **Set Page Index**) for your own interaction code to
-call, plus an **On Page Changed** event to react to. If you want ready-made interaction,
-pair it with the [Ink Page Interactor](/plugins/inkwell/components/interactor) and
-[Ink Page Reader](/plugins/inkwell/components/reader), or wire your own system — see the
-[integration guide](/plugins/inkwell/guides/integration).
+Everything else in the plugin is built on it: the [Ink Page](/plugins/inkwell/components/page-actor)
+placeable actor owns one, [Ink Page Stack](/plugins/inkwell/components/page-stack) extends it, and both the
+[Ink Page Interactor](/plugins/inkwell/components/interactor) and the
+[Ink Page Reader](/plugins/inkwell/components/reader) look for one on the actor they are pointed at.
 
-<Tip>
-If you want a whole *pile* of paper instead of a single surface — one sheet mesh per
-page, with animated page turns — use [Ink Page Stack](/plugins/inkwell/components/page-stack). It extends
-this component, so the properties, page API, and events on this page all apply to it
-too; only the presentation details below (target mesh, the no-document blank sheet, the
-preview render target) are replaced by the stack's own sheet handling.
-</Tip>
+Two things it deliberately does *not* do: it has no input handling, and it does not care
+who turns the page. It exposes **Next Page**, **Previous Page** and **Set Page Index** for
+your own interaction code to call, and an **On Page Changed** event to react to. See the
+[integration guide](/plugins/inkwell/guides/integration) for wiring it into an interaction system you
+already have.
+
+<Frame caption="An Ink Page Display component in the Details panel.">
+  <img src="/images/inkwell/display-component-details.png" alt="Details panel of an Ink Page Display component" />
+</Frame>
+
+## Adding it to an actor you already have
+
+<Steps>
+  <Step title="Add the component">
+    Open the actor (Blueprint editor, or select a placed actor in the level), press
+    **Add Component**, and pick **Ink Page Display** — it is in the *Inkwell* class group.
+    It is an ordinary actor component and needs no C++.
+  </Step>
+  <Step title="Assign a Document">
+    Set **Document** to a Page Document. If the actor already owns a mesh, the page appears
+    on it straight away in the viewport — no Play needed, because
+    [**Preview In Editor**](#editor-preview) is on by default. If the actor has no mesh, a
+    sheet of paper appears instead: see [Procedural Paper](#procedural-paper).
+  </Step>
+  <Step title="Say which mesh, if there is any doubt">
+    With one mesh on the actor there is nothing to do. With several, set **Target Mesh** to
+    the one the page belongs on — otherwise the component picks whichever mesh comes first
+    on the actor, which is rarely the one you meant. See
+    [how the mesh is chosen](#how-the-component-finds-a-mesh).
+  </Step>
+  <Step title="Check the material slot and the UVs">
+    The page is applied to **Material Slot** `0` unless you change it. The face it lands on
+    must have clean 0–1 UVs across the whole page area; an atlas-mapped prop garbles the
+    text. If the writing looks stretched, smeared or cropped, this is why.
+  </Step>
+  <Step title="Turn a page">
+    From your interaction code, call **Next Page** / **Previous Page** / **Set Page Index**
+    on the component. Bind **On Page Changed** to play a paper rustle or update a "3 / 12"
+    counter.
+  </Step>
+</Steps>
 
 ## Properties
 
 | Property | Type | Default | What it does |
 | --- | --- | --- | --- |
-| **Document** | Ink Page Document | *None* | The authored page content to show. Create one with **right-click → Inkwell → Page Document**. |
-| **Page Index** | Integer | `0` | Which page of the document is currently shown (0 = the first page). |
-| **Target Mesh** | Component reference | *None* | Mesh the page is drawn onto. Leave it empty to use the first mesh component found on this actor. |
-| **Apply On Begin Play** | Boolean | `true` | Draw the page automatically when the game starts. Turn this off to reveal it later yourself (call **Refresh**). |
-| **Loop Pages** | Boolean | `false` | Wrap from the last page back to the first (and vice versa) when turning pages. |
-| **Material Slot** *(advanced)* | Integer | `0` | Material slot on the target mesh that the page is drawn into. Usually 0. |
-| **Preview In Editor** *(advanced)* | Boolean | `true` | Update the page live in the level viewport while editing, without pressing Play. |
+| **Document** | Ink Page Document | *None* | The authored page content to show. With none assigned the component applies a [blank sheet](#with-no-document) rather than leaving stale ink behind. |
+| **Page Index** | Integer | `0` | The page currently shown, 0-based. Clamped into the document's range. |
+| **Page Scale** | Float | `1.0` | Multiplies the document's own physical size for this component. `2` is twice as big, `0.5` half. Clamped at `0.01`; the slider runs `0.1`–`5.0`. See [Sizing](#sizing). |
+| **Target Mesh** | Component reference | *None* | The mesh the page is drawn onto. Empty means "work it out" — see [below](#how-the-component-finds-a-mesh). |
+| **Apply On Begin Play** | Boolean | `true` | Bake and apply the page when play starts, and broadcast **On Page Changed** once. Off, nothing is drawn until you call **Refresh** yourself. |
+| **Loop Pages** | Boolean | `false` | Wrap from the last page to the first (and back) in **Next Page** / **Previous Page**. |
+| **Procedural Paper** | Boolean | `true` | Spawn a sheet of paper when the actor has no mesh of its own. See [Procedural Paper](#procedural-paper). |
+| **Material Slot** *(advanced)* | Integer | `0` | The material slot on the target mesh the page is applied to. |
+| **Preview In Editor** *(advanced)* | Boolean | `true` | Draw the page in the level viewport while editing, without pressing Play. |
 
-## How the target mesh is resolved
+## Functions
 
-The component draws onto exactly one mesh, chosen like this:
+All of these are Blueprint-callable or Blueprint-pure, in the **Inkwell → Page** palette
+category.
 
-1. If **Target Mesh** is set and resolves to a mesh component, that mesh wins.
-2. Otherwise (including when the picked component turns out not to be a mesh), the
-   component falls back to the **first mesh component** found on the owning actor.
-3. If the actor has no mesh at all, nothing is drawn — and if a document is assigned, a
-   verbose log message points you at the problem.
-
-**Target Mesh** uses the standard component picker and accepts any
-mesh component class (static or skeletal).
-
-<Warning>
-The target mesh needs clean **0–1 UVs across the page face**. An atlas-mapped prop mesh
-will garble the text. The bundled `SM_PageSheet` mesh (a 100 cm plane) is made for this;
-for your own meshes, make sure the page area maps the full 0–1 UV square.
-</Warning>
-
-You can ask the component which mesh it settled on with **Resolve Target Mesh**
-(`ResolveTargetMesh`), and fetch the dynamic material instance it created with
-**Get Page Material** (`GetPageMaterial`) if you want to tweak material parameters
-yourself.
-
-## Page API
-
-All of these are Blueprint-callable (and available from C++):
-
-| Function | Returns | Notes |
+| Node | Returns | What it does |
 | --- | --- | --- |
-| **Set Document** (`SetDocument`) | — | Swaps in a different Page Document and shows the given page (default 0). Fires **On Page Changed**. |
-| **Set Page Index** (`SetPageIndex`) | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. Returns `true` only if the page actually changed. |
-| **Next Page** (`NextPage`) | Boolean | Turns to the next page. Returns `false` when already on the last page — unless **Loop Pages** is on, in which case it wraps to page 0. |
-| **Previous Page** (`PreviousPage`) | Boolean | Turns to the previous page. Returns `false` on the first page — unless **Loop Pages** is on, in which case it wraps to the last page. |
-| **Refresh** (`Refresh`) | — | Re-bakes and re-applies the current page. Call this after editing the document at runtime. |
-| **Get Page Count** (`GetPageCount`) | Integer | Pages in the current document (0 if no document is assigned). |
-| **Get Current Page Index** (`GetCurrentPageIndex`) | Integer | The page currently shown (0 = first page). |
-| **Is On First Page** (`IsOnFirstPage`) | Boolean | Handy for greying out a "previous" prompt. |
-| **Is On Last Page** (`IsOnLastPage`) | Boolean | Handy for greying out a "next" prompt. |
-| **Resolve Target Mesh** (`ResolveTargetMesh`) | Mesh Component | The mesh this component draws onto (see above). |
-| **Get Page Material** (`GetPageMaterial`) | Dynamic Material Instance | The material instance created for the current page, if the page has been drawn yet. |
+| **Set Document** | — | Swaps in a different document and shows the given page (defaults to `0`). Clamps the index, refreshes, and broadcasts **On Page Changed**. |
+| **Set Page Index** | Boolean | Shows a specific page. Out-of-range values are clamped. Returns `true` only when the shown page actually changed, and only then refreshes and broadcasts. |
+| **Next Page** | Boolean | Forward one page. Returns `false` on the last page, unless **Loop Pages** is on, in which case it wraps to page 0. |
+| **Previous Page** | Boolean | Back one page. Returns `false` on the first page, unless **Loop Pages** is on, in which case it wraps to the last page. |
+| **Refresh** | — | Re-does everything: fixes the paper, re-bakes the current page and re-applies the material. Call it after changing the document at runtime. Virtual — [Ink Page Stack](/plugins/inkwell/components/page-stack) overrides it. |
+| **Get Page Count** | Integer | Pages in the current document; `0` when none is assigned. |
+| **Get Current Page Index** | Integer | The page currently shown, 0-based. |
+| **Is On First Page** | Boolean | True when **Page Index** is `0` or lower. Handy for graying out a "previous" prompt. |
+| **Is On Last Page** | Boolean | True on the last page — and also when there is no document at all. |
+| **Get Effective Page Size Cm** | 2D Vector | The size the paper is drawn at, in centimeters: the document's **Get Page Size Cm** × **Page Scale**. Returns A4 (21 × 29.7) × **Page Scale** when no document is assigned. |
+| **Apply Page Size** | — | Re-applies the paper's *physical size* without re-baking any ink, and fires **On Page Size Changed** if the size really moved. The cheap path a **Page Scale** change takes. |
+| **Resolve Target Mesh** | Mesh Component | The mesh this component is actually drawing onto, after the [resolution rules](#how-the-component-finds-a-mesh). |
+| **Get Page Material** | Dynamic Material Instance | The material instance created for the current page, or None if the page has not been drawn yet. Use it to tweak ink and paper parameters yourself. |
+| **Get Procedural Paper Mesh** | Static Mesh Component | The sheet spawned by [Procedural Paper](#procedural-paper), or None when the actor supplies its own mesh. |
 
 <Note>
-**Next Page** and **Previous Page** both return `false` when the document has one page
-or fewer, so it is safe to call them unconditionally from an input event.
+**Next Page** and **Previous Page** both return `false` immediately when the document has
+one page or fewer, so calling them straight from an input event is safe.
 </Note>
 
 ## Events
 
-**On Page Changed** (`OnPageChanged`) fires every time the shown page changes — a page
-turn, a document swap, or the initial draw at game start (when **Apply On Begin Play**
-is on). Use it to play a page-turn sound, update a "3 / 12" counter, and so on.
+### On Page Changed
 
-It delivers two parameters:
+Fires whenever the shown page changes: a successful **Set Page Index**, a **Next Page** or
+**Previous Page** that moved, a **Set Document** call, and the initial draw at Begin Play
+when **Apply On Begin Play** is on.
 
-- **New Page Index** — the page now shown, 0-based.
-- **Page Count** — the number of pages in the current document.
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| **New Page Index** | Integer | The page now shown, 0-based. |
+| **Page Count** | Integer | Pages in the current document. |
 
-## What happens with no document
+Use it for page-turn audio, a page counter, or driving quest state off "the player reached
+the last page".
 
-If no document is assigned, the component does not leave stale ink in the material slot:
-it applies a **blank sheet** instead — the page material with the project's blank-ink
-texture and the paper texture turned off (both come from
-[Project Settings → Inkwell](/plugins/inkwell/reference/settings)). Assign a document later with
-**Set Document** and the page appears.
+### On Page Size Changed
+
+Fires when the paper's *physical* size changes — a **Page Scale** edit, a **Set Document**
+bringing in a differently sized document, or the first time the size is applied.
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| **New Size Cm** | 2D Vector | The size the paper is now drawn at, in centimeters. |
+
+It only fires on a real change: the component remembers the last size it announced, so a
+**Refresh** that leaves the size alone is silent. Bind it to reposition whatever sits on or
+around the page — a frame mesh, a pinned label, a collision volume. It is what the
+[Ink Page](/plugins/inkwell/components/page-actor) actor uses to keep its own sheet fitted.
+
+## How the component finds a mesh
+
+The component draws onto exactly one mesh, chosen in this order:
+
+1. **Target Mesh**, if the pick resolves to something that is a `MeshComponent` (static or
+   skeletal). It uses the standard component picker.
+2. Otherwise **the actor's first mesh component**, in component order — *deliberately
+   skipping the sheet Procedural Paper spawned*. That exclusion matters: the spawned sheet
+   is itself a mesh component on the actor, so counting it would make the component conclude
+   the actor supplies its own paper and destroy the sheet on the next refresh.
+3. Otherwise the [procedurally spawned sheet](#procedural-paper), if there is one.
+4. Otherwise nothing is drawn. When a document is assigned, a Verbose log line names the
+   actor and tells you to set **Target Mesh** or add a mesh component.
+
+<Warning>
+A **Target Mesh** pick that resolves to something which is *not* a mesh — a scene component,
+a stale reference — does not disable the component. It quietly falls through to rule 2 and
+draws on the actor's first mesh instead. If the page turns up somewhere unexpected, check
+that the pick is still valid.
+</Warning>
+
+**Resolve Target Mesh** returns whatever this resolved to, so you can check it from
+Blueprint. **Get Page Material** returns the dynamic material instance the component made
+for that mesh.
+
+<Warning>
+The target mesh needs clean **0–1 UVs across the page face**. The baked ink is sampled
+across the full UV square, so an atlas-mapped prop mesh will garble the text. The bundled
+`SM_PageSheet` (a 100 cm plane) is built for this; for your own mesh, make sure the page
+area maps the whole 0–1 square.
+</Warning>
+
+## Procedural Paper
+
+When the actor has no mesh of its own, the component supplies the paper: it spawns a static
+mesh sheet, attaches it to the actor's root component, and scales it from the document's own
+size. Add the component to an empty actor, assign a document, and you have a readable sheet
+of paper. That is the whole reason **Procedural Paper** is a single boolean and is on by
+default.
+
+The details worth knowing:
+
+- The sheet uses the project's page sheet mesh from
+  [Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings) (`/Inkwell/Meshes/SM_PageSheet`
+  by default — a 100 cm plane, so document centimeters map straight to scale).
+- It is scaled to [**Get Effective Page Size Cm**](#sizing) on every refresh, so editing the
+  document's **Page Width Cm** or dragging **Page Scale** resizes it live in the viewport.
+- Its collision is set once, at spawn: **Query Only** (no physics collision at all), object
+  type World Dynamic, ignoring every channel except **Visibility** and the eighteen custom
+  game trace channels, which it blocks. Overlap events are off and it never affects the
+  navmesh. So the player walks straight through it and the camera does not collide with it,
+  but whatever channel your interaction trace uses, it hits the page. Because that is applied
+  only at spawn, a project that needs something different can change the collision on the
+  component returned by **Get Procedural Paper Mesh** and the change sticks.
+- With **no document assigned** you still get a sheet, sized A4 × **Page Scale**, showing
+  blank paper — so a freshly added component immediately shows what it is about to print on.
+
+<Note>
+**It never takes over a mesh you provided.** The sheet is a fallback, used only when
+[mesh resolution](#how-the-component-finds-a-mesh) finds nothing on the actor. An explicit
+**Target Mesh**, or any mesh component already on the actor, wins and no sheet is spawned —
+so leaving the option on costs nothing on a prop, a book or the
+[Ink Page](/plugins/inkwell/components/page-actor) actor. The moment the actor gains a mesh of its own, an
+existing sheet is destroyed.
+</Note>
+
+### When to turn it off
+
+- The actor is meant to draw **nothing** until something else happens, and you do not want a
+  blank sheet floating there in the meantime.
+- The page belongs on a mesh that is **not on this actor yet** — spawned later, or attached
+  at runtime — and you would rather see nothing than a stray sheet in the interim.
+- You are managing paper yourself and want the component to be purely a page API.
+
+Turning it off on an actor with no mesh means nothing is drawn at all, which is exactly what
+the option is for.
+
+<Warning>
+The spawned sheet is **transient**: it is derived from the document, rebuilt on load, and
+never saved into your level. Do not reference it from saved data or attach persistent things
+to it, and treat **Get Procedural Paper Mesh** as a handle that is valid only until the sheet
+is destroyed — which happens when the option is switched off, when the actor gains a mesh, or
+when the component unregisters.
+</Warning>
+
+<Note>
+[Ink Page Stack](/plugins/inkwell/components/page-stack) always spawns one sheet per page, so this option
+never applies there and the stack grays it out in the Details panel.
+</Note>
+
+## Sizing
+
+Physical size is a property of the *content*, not of the component:
+
+```text
+Get Effective Page Size Cm  =  Document → Get Page Size Cm  ×  Page Scale
+```
+
+The document's [**Page Width Cm**](/plugins/inkwell/authoring/documents) is the only physical dimension
+anyone sets; its height is derived from the page's pixel aspect ratio, so the paper is always
+the shape of the page you authored and writing can never come out stretched. **Page Scale**
+multiplies **both** dimensions together, which preserves that guarantee — there is no second
+size that could disagree with the first.
+
+So a document authored 21 cm wide is A4 everywhere it appears, and a pocket note authored
+9 cm wide is small everywhere — with **Page Scale** left at `1`. Set **Page Scale** to `2` on
+one placement and that copy alone becomes a desk-sized ledger.
+
+**Apply Page Size is what pushes the size onto the paper.** It re-fits the paper and fires
+**On Page Size Changed**; it does not touch the ink, because resizing does not change a single
+pixel of what is written. That is why it is safe to run on every tick of a slider drag, and
+why editing **Page Scale** in the Details panel resizes the sheet live without ever re-baking
+or turning a page.
+
+Setting **Page Scale** from Blueprint does not apply itself. Call **Apply Page Size** after
+it (or **Refresh**, which also re-bakes and is far more expensive).
+
+<Note>
+**Inkwell only resizes paper it made.** On the spawned sheet, **Apply Page Size** rescales
+the sheet directly; the [Ink Page](/plugins/inkwell/components/page-actor) actor re-fits its **Page Mesh**;
+[Ink Page Stack](/plugins/inkwell/components/page-stack) re-deals the whole pile. When the page is drawn onto
+a mesh **you** supplied, the component never touches your transform — it only changes the size
+it *reports* and fires **On Page Size Changed**. Scaling the prop is yours to do, and that
+event is the hook for doing it.
+</Note>
+
+## Which material slot the ink lands in
+
+The baked page is applied with `SetMaterial` on the resolved mesh, into **Material Slot**
+(default `0`). The component creates a dynamic instance of the project's page ink material
+(`/Inkwell/Materials/MI_PageInk` by default, repointable in
+[Project Settings](/plugins/inkwell/reference/settings)) and sets the ink texture, paper texture, tints and
+ink strength on it — no other slot on the mesh is touched.
+
+Set **Material Slot** when the page belongs on the second material of a multi-material prop:
+a book cover mesh whose pages are slot 1, a clipboard whose paper is slot 2. The procedural
+sheet has one slot, so leave it at `0` there.
+
+Grab the instance with **Get Page Material** if you want to drive material parameters
+yourself — an ink fade-in, a wetness or burn parameter of your own. It is recreated on every
+refresh, so read it again after one.
+
+### With no document
+
+The component does not leave stale ink in the slot. With **Document** unset it applies the
+page material with the project's blank-ink texture and the paper texture switched off, so the
+mesh shows plain paper. Assign a document later with **Set Document** and the page appears.
 
 ## Editor preview
 
-With **Preview In Editor** on (the default), the page renders live in the level viewport
-as you edit — assign a document, scrub **Page Index**, or edit any property, and the mesh
-updates immediately without pressing Play. A few details worth knowing:
+With **Preview In Editor** on (the default), the page renders in the level viewport as you
+edit: assign a document, scrub **Page Index**, drag **Page Scale**, and the mesh updates
+without pressing Play. Editing the document in the [Page Editor](/plugins/inkwell/authoring/page-editor)
+updates every placed page using it, immediately.
 
-- The preview is **cosmetic only**: it never dirties the level package, so simply opening
-  a map full of pages will not demand a save.
-- The preview reuses a single transient render target per component, so repeated viewport
-  refreshes do not allocate new render targets.
-- During editor startup the renderer can briefly be unavailable; the component
-  automatically retries the preview bake (up to 8 times with increasing delays, from
-  0.25 s up to 32 s — about a minute in total). If it still cannot bake, it logs a
-  warning and the sheet refreshes the next time it is edited or the map is reopened.
-- In play (game or PIE) the preview path is not used at all — pages bake through the
-  per-world page cache, which shares one bake between every display showing the same
-  document page. See [rendering](/plugins/inkwell/reference/rendering).
+- The preview is **cosmetic**. Neither the sheet nor the material assignment dirties the level
+  package, so opening a map full of pages never demands a save.
+- It bakes into one reused transient render target per component, rather than allocating a new
+  one per refresh.
+- **A Page Scale edit takes the cheap path.** In the Details panel it calls
+  [**Apply Page Size**](#sizing) only — no re-bake — which is what lets the paper follow the
+  slider. Any other property edit triggers a full **Refresh**.
+- During editor startup the Slate renderer can briefly be unavailable and the bake fails. The
+  component retries on the core ticker up to 8 times with an exponential backoff, from 0.25 s
+  to 32 s (about a minute in total). If it still cannot bake, it logs a warning and the sheet
+  refreshes the next time it is edited or the map is reopened.
+- In game and PIE the preview path is not used. Pages bake through the per-world page cache,
+  which shares one bake between every display showing the same document page — see
+  [rendering](/plugins/inkwell/reference/rendering).
 
-## See also
+<Accordion title="The page is a checkerboard, or nothing appears">
+Work down this list:
+
+- **No mesh.** Check the Output Log at Verbose for `InkPageDisplay ... has no mesh to draw
+  onto`. Set **Target Mesh**, add a mesh, or leave **Procedural Paper** on.
+- **Procedural Paper on, but no sheet.** The actor needs a **root component** for the sheet to
+  attach to; an actor with no scene root gets its own Verbose log line saying so.
+- **Preview In Editor off.** Nothing draws outside of play. Turn it on, or press Play.
+- **Apply On Begin Play off.** In game, nothing is drawn until you call **Refresh** yourself.
+- **Wrong material slot.** The ink went into a slot you cannot see. Try `0`.
+- **Editor just started.** Give it the retry window, or touch any property to force a refresh.
+</Accordion>
+
+## Next
 
 <CardGroup cols={2}>
   <Card title="Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
-    A physical pile of sheets — drop-in replacement for this component.
+    A physical pile of sheets with animated page turns — a drop-in replacement for this.
   </Card>
-  <Card title="Ink Page Actor" icon="scroll" href="/plugins/inkwell/components/page-actor">
-    A ready-made placeable sheet built around this component.
-  </Card>
-  <Card title="Ink Page Widget" icon="window-maximize" href="/plugins/inkwell/components/page-widget">
-    The same page in a full-screen UMG UI.
+  <Card title="Ink Page" icon="scroll" href="/plugins/inkwell/components/page-actor">
+    The ready-made placeable sheet built around this component.
   </Card>
   <Card title="Integration guide" icon="plug" href="/plugins/inkwell/guides/integration">
-    Driving the page API from your own interaction system.
+    Driving this page API from an interaction system you already have.
+  </Card>
+  <Card title="Rendering" icon="gears" href="/plugins/inkwell/reference/rendering">
+    How a page is baked, cached per world, and applied to the material.
   </Card>
 </CardGroup>

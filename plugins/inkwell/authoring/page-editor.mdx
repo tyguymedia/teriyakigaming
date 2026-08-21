@@ -1,215 +1,339 @@
 ---
 title: "Page Editor"
-description: "The WYSIWYG window where you write, style, and lay out pages — what every panel does and how to open it."
+description: "The Inkwell Page Editor window end to end: opening it, the toolbar, the three edit modes, the page surface, the layers and pages lists, and the game-true preview."
 icon: "pen-nib"
 ---
 
-The **Inkwell Page Editor** is a standalone editor window where you author a
-[Page Document](/plugins/inkwell/authoring/documents) visually: you type directly onto the paper, style
-runs of text from a toolbar, drag images around the page, and watch a preview rendered
-through the exact bake path the game uses. No C++, no Blueprint.
+The **Inkwell Page Editor** is the window where you author a
+[Page Document](/plugins/inkwell/authoring/documents): type onto the paper, style runs from a toolbar,
+stack images and freehand drawing in [layers](/plugins/inkwell/authoring/layers), and watch a preview
+rendered through the exact bake path the game uses. No C++, no Blueprint.
 
-The WYSIWYG guarantee is structural, not cosmetic: the edit box uses the same rich-text
-marshaller class as the runtime bake, and the preview is baked through the same render
-library the game calls. What you see is what ships.
+The WYSIWYG guarantee is structural rather than cosmetic. The edit box uses the same
+rich-text marshaller class as the runtime bake, the strokes on the page are drawn by the
+bake's own stroke renderer, and the preview is composited through the same material the
+game's pages use.
+
+<Frame caption="The Page Editor. Three resizable panes: document settings, the page you are writing on, and the preview and layer stack.">
+  <img src="/images/inkwell/page-editor-overview.png" alt="The Inkwell Page Editor window with its left panel, toolbar, page surface and right panel" />
+</Frame>
+
+<Steps>
+  <Step title="1 — Left panel">
+    The document itself: the **Pages** list, then **Page Setup**, **Paper & Ink**,
+    **Default Text Style**, **Drawing Tools**, and the **Save Document** button at the
+    bottom. Everything here except the drawing tools is a property of the asset — see
+    [Page Documents](/plugins/inkwell/authoring/documents).
+  </Step>
+  <Step title="2 — Toolbar">
+    Styles the current text selection, and carries the three **Mode** toggles that decide
+    what the page surface does with your mouse.
+  </Step>
+  <Step title="3 — Page surface">
+    The page at its authored pixel size, scaled to fit the pane. You type here, drag boxes
+    here, and draw here.
+  </Step>
+  <Step title="4 — Right panel">
+    **Rendered Preview (game-true ink)** on top, **Layers (front to back)** underneath,
+    split by a handle you can drag either way.
+  </Step>
+</Steps>
+
+All three columns are one splitter, and the right column is another splitter inside it, so
+you can give the space to whichever part of the job you are doing. Every pane has a minimum
+size, so none of them can be dragged shut and lost.
+
+The window opens at 1680 × 980, is titled *Inkwell Page Editor — DocumentName*, and
+maximizes and minimizes normally. Each document gets **one** window: opening a document
+that is already open brings its window to the front instead of making a second one.
 
 ## Opening the editor
 
-Any of these routes works:
+<Steps>
+  <Step title="Double-click the asset">
+    The usual route. Double-clicking an Ink Page Document in the Content Browser opens the
+    Page Editor — the asset has no details-panel editor to open instead. Right-clicking the
+    asset and choosing **Edit Pages...** does the same thing.
+  </Step>
+  <Step title="Use the Page Editor toolbar dropdown">
+    The **Page Editor** button on the level editor toolbar opens a menu with:
 
-- **Double-click** a Page Document asset in the Content Browser.
-- **Right-click** a Page Document asset → **Edit Pages...**.
-- The **Page Editor** dropdown on the level editor toolbar lists every Page Document in the
-  project, plus **Create New Page Document...** and **Import Font Family...**.
-- **Tools → Inkwell** — the same menu, for projects that hide the toolbar button
-  (**Show Toolbar Button** in [Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)).
-- **Right-click a placed actor** that references a Page Document (on the actor itself or
-  any of its components, including in arrays) → **Edit Pages (Name)...**. An actor
-  referencing several documents gets an **Edit Pages** submenu instead.
-- Console: `Inkwell.OpenPageEditor /Game/Path/DA_MyNote.DA_MyNote`. With no argument it
-  opens the document directly if the project has exactly one, otherwise it lists the
-  available object paths in the Output Log.
+    - **Edit Document...** — a browser dialog filtered to Page Documents.
+    - **Recent / All Documents** — the last eight documents you edited, listed by name,
+      above a searchable list of every Page Document in the project. The list answers from
+      the Asset Registry, so nothing is loaded until you click a row, and a document that
+      was deleted or renamed drops off the recent list by itself.
+    - **Create New Page Document...** — creates the asset and opens it.
+    - **Import Font Family...** — the [font import dialog](/plugins/inkwell/authoring/fonts).
 
-Each document gets one window (opening it again re-focuses the existing window), titled
-*Inkwell Page Editor — DocumentName*, at a default size of 1680×980. It supports maximize
-and minimize.
+    **Tools → Inkwell** carries the same menu, which is where to look if your project turns
+    the toolbar button off (**Show Toolbar Button** in
+    [Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings) — it takes effect after an
+    editor restart).
+  </Step>
+  <Step title="Right-click a placed actor">
+    Right-click an actor in the level that references a Page Document and pick
+    **Edit Pages (DocumentName)...** from the **Inkwell** section. Inkwell finds the
+    document by scanning the actor *and all of its components* for any object property
+    pointing at a Page Document — hard, weak or soft, including inside arrays — so this
+    works on your own Blueprints, not only on the supplied
+    [Ink Page actor](/plugins/inkwell/components/page-actor). An actor referencing several documents gets
+    an **Edit Pages** submenu listing them all; an actor referencing none shows nothing at
+    all.
+  </Step>
+  <Step title="Or use the console">
+    `Inkwell.OpenPageEditor /Game/Notes/DA_MyNote.DA_MyNote` opens that document. With no
+    argument it opens the document directly if the project has exactly one, and otherwise
+    prints every available object path to the Output Log so you can copy one.
+  </Step>
+</Steps>
 
-## Window layout
-
-Three columns:
-
-| Region | Contents |
-|---|---|
-| **Left panel** | Pages list, Page Setup, Paper & Ink, Default Text Style, and the Save Document button. |
-| **Center** | The styling toolbar, and below it the page surface — the page at its authored aspect ratio, scaled to fit the pane. |
-| **Right panel** | The rendered preview ("game-true ink") on top, and the Images & Page section below it. |
-
-## The page surface
-
-The center pane shows the page itself: the paper texture (tinted by Paper Tint) behind a
-transparent rich-text box inset by the document margins. **Type directly onto the paper.**
-Text auto-wraps, honors the page's justification, and uses the document's line height.
-
-- Untagged text renders in the document's **Default Text Style**.
-- Placed images render in their true positions — behind or in front of the text according
-  to each image's **Behind Text** flag.
-- The surface is laid out in page pixels and scaled to fit the pane, so what you see is the
-  page's real geometry.
+<Frame caption="The Inkwell menu. The same entries appear whether you open it from the Page Editor button in the Level Editor toolbar or from Tools ▸ Inkwell; the searchable document list is inside Recent / All Documents.">
+  <img src="/images/inkwell/toolbar-dropdown.png" alt="The Inkwell menu: Edit Document, Recent / All Documents, Create New Page Document, Import Font Family" />
+</Frame>
 
 ## The toolbar
 
-The toolbar styles the current **selection**. Left to right:
+<Frame caption="The toolbar styles the selected text; the Mode toggles on the right decide what the page surface does.">
+  <img src="/images/inkwell/page-editor-toolbar.png" alt="The Page Editor toolbar: font family, import, size, bold, italic, underline, strikethrough, color, justification and mode toggles" />
+</Frame>
 
-| Control | Effect |
+Left to right:
+
+| Control | What it does |
 |---|---|
-| Font family | Picks the composite font for the selection. The list holds every runtime composite font discovered in the configured search paths (see [Fonts](/plugins/inkwell/authoring/fonts)). |
-| Import button | Opens the [font import dialog](/plugins/inkwell/authoring/fonts#importing-your-own-fonts) — new families appear in the list automatically. |
-| Size | Font size, 6–300, in page pixels at 96 DPI. |
-| **B** / *I* | Switches the run to the family's Bold / Italic / BoldItalic typeface. |
-| U / -S- | Underline / strikethrough. |
-| Color | Text color for the selection (color picker applies on mouse-up). |
-| Justification | Per-**page** alignment: left, center, right. This is a page property, not a run property. |
-| Edit Images | Toggles image edit mode — drag placed images directly on the page. A view mode: toggling it never dirties the document. |
+| Font family | Applies a composite font to the selection. The list holds every runtime composite font found in the configured search paths. It opens on the document's **Default Font** when that font is in the list, otherwise on the first family found; it reads **Font...** only when no families were discovered at all. See [Fonts](/plugins/inkwell/authoring/fonts). |
+| Import button | Opens the font import dialog — *"Import a folder of TTF fonts as page font families..."*. Newly built families appear in every open Page Editor's pickers without reopening anything. |
+| Size | Font size of the selection, 6–300, in page pixels at 96 DPI. Deliberately **not** live: it applies when you release the slider or press Enter, because restyling rewrites the markup and clears the selection. |
+| **B** / *I* | Switches the run to the family's Bold / Italic / BoldItalic face. |
+| U / -S- | Underline and strikethrough. Both are opt-in per run and never inherited from the document defaults. |
+| Color swatch | Text color for the selection. The picker applies on mouse-up. |
+| Justify buttons | Justification — left, center, right. It belongs to **the text box you are editing**, not the page, so a heading layer can be centered over a body layer that is not. |
+| Mode: Text / Image / Draw | The three edit modes, below. Switching mode is a view change and never dirties the document. |
 
 **The toolbar follows your cursor.** Click inside a styled passage and the controls update
-to show that passage's font, size, color, bold/italic (recovered from the typeface name, so
-"BoldItalic" lights both), underline, and strikethrough. On untagged text the size, color,
-and B/I/U/S toggles snap back to the document defaults, while the font family stays armed
-for the next styled run you create.
+to show that run's font, size, color, bold/italic (recovered from the typeface name, so
+`BoldItalic` lights both), underline and strikethrough. On untagged text the size, color and
+B/I/U/S toggles snap back to the document defaults while the font family stays armed for the
+next run you style.
 
-Selections survive toolbar clicks — the edit box keeps its selection when a button steals
+Selections survive toolbar clicks: the edit box keeps its selection when a button steals
 focus, and focus returns to the text after each apply.
 
 <Note>
-Bold and italic depend on the font actually having those faces. A family without a Bold
-face silently renders Regular when you press **B** — that is a property of the font, not a
-bug. The picker falls back through sensible candidates (for bold-italic:
-BoldItalic → Bold Italic → BoldOblique, then Bold, then Italic/Oblique, then
-Regular/Default, then the family's first face). See
+Bold and italic depend on the font actually having those faces — the tooltips say so:
+*"Bold (needs a Bold face in the font)"*. A family with only a Regular face renders Regular
+when you press **B**. That is a property of the font, not a bug; see
 [Fonts](/plugins/inkwell/authoring/fonts) for building families with all four faces.
 </Note>
 
-## Left panel
+## The three modes
 
-### Pages
+One page surface, three things your mouse can mean. The mode also switches itself when you
+select a layer, so picking an image layer in the Layers panel puts you in Image mode rather
+than leaving you clicking at something the current tool cannot touch.
 
-A list of the document's pages, plus:
+| Mode | You can | You cannot |
+|---|---|---|
+| **Text** | Type, place the caret, select and style runs, drag the selected text box by its outline, double-click an image or drawing to jump to it. | Drag image layers, draw strokes. |
+| **Image** | Click and drag any visible, unlocked image layer by its whole area; select layers; double-click anything to jump to it. | Type — text editing is suspended and the writing grays out. |
+| **Draw** | Draw and erase with the brush from the **Drawing Tools** panel; double-click a mark to jump to its layer. | Type, or drag anything — the brush owns the mouse. |
+
+Outside Text mode a banner is drawn across the top of the page, in orange for Image mode and
+blue for Draw mode, saying that text editing is off and how to get back to it:
+
+> IMAGE MODE — drag image layers. Esc returns to Text Mode.
+
+> DRAW MODE — draw on the page. Esc returns to Text Mode.
+
+**Esc returns to Text mode** from anywhere in the window. Leaving Draw mode mid-stroke drops
+that stroke — a mark belongs to the mode it was started in.
+
+<Frame caption="Text mode. Only the selected text layer is outlined, so a page you are just reading is not covered in boxes.">
+  <img src="/images/inkwell/page-editor-text-mode.png" alt="The page surface in Text mode with the selected text box outlined" />
+</Frame>
+
+<Frame caption="Image mode. Every draggable image layer gets a box, and the banner says why typing does nothing.">
+  <img src="/images/inkwell/page-editor-image-mode.png" alt="The page surface in Image mode showing the orange mode banner" />
+</Frame>
+
+## The page surface
+
+The center pane draws the page at its real geometry — laid out in page pixels and scaled to
+fit — with the paper (tinted by **Paper Tint**) behind a transparent rich-text box.
+
+**Typing.** Type straight onto the paper. Text auto-wraps, honors the text box's
+justification and the document's line height, and renders untagged runs in the document's
+Default Text Style. A text layer that fills the page wraps inside the document's
+**Margins Px**; a placed text box wraps at its own width.
+
+**Text box outlines.** In Text mode the **selected** text layer — and only that one — is
+framed by four thin strips that sit just *outside* the box. Drag any strip to move the box.
+The strips are outside the box on purpose: the interior stays genuinely empty, so a click in
+the middle still lands on the writing and puts the caret where you aimed it. An outline
+around every text box would bury a page whose author is trying to read what they wrote.
+
+<Tip>
+Dragging a page-filling text box is what turns it into a placed box. Until you drag it (or
+type a Box W and Box H in the Layers panel), it stays page-filling and keeps following the
+document margins. Setting Box W or Box H back to 0 spreads it over the page again.
+</Tip>
+
+**Dragging images.** In Image mode every visible, unlocked image layer gets a drag box over
+its whole area — orange when selected, blue otherwise. Click to select, drag to move. Drags
+convert screen pixels back into page pixels, so the result is the same at any zoom or pane
+width, and one drag is one undo step. An image with no texture assigned still gets a box, so
+you can position it before you have the art.
+
+**Double-click anything to jump to it.** Double-clicking any element on the page selects its
+layer *and* switches to the mode that edits it: writing lands you in Text mode with the caret
+in that box, a picture in Image mode, a drawing in Draw mode. It works from any mode. Two
+deliberate exceptions: locked layers refuse to be picked up, and double-clicking bare paper
+does nothing rather than hunting for whatever is stacked behind it.
+
+<Accordion title="Clicking my text does nothing">
+You are in Image or Draw mode — the banner across the page says so. Press **Esc**, or click
+the **Text** mode toggle. Text editing is suspended in the other two modes so that a click
+meant for a picture underneath the writing actually reaches it.
+</Accordion>
+
+<Accordion title="A layer will not select or drag">
+It is locked. Unlock it from the padlock on its row in the Layers panel, or from the row's
+right-click menu. Locked layers still draw on the page and in the bake — locking is purely
+an authoring aid. Hidden layers are not drawn at all, by the surface or the bake.
+</Accordion>
+
+## Pages
+
+The **Pages** list at the top of the left panel is one toggle per page, plus five buttons:
 
 | Button | Effect |
 |---|---|
 | Add | Inserts a new blank page after the current one. |
-| Duplicate | Inserts a copy of the current page after it. |
+| Duplicate | Inserts a copy of the current page — layers and all — after it. |
 | Delete | Removes the current page. A document always keeps at least one page. |
-| ^ / v | Moves the current page up / down in the order. |
+| ^ / v | Moves the current page up or down in the order. |
 
-Page add, duplicate, delete, and move are all undoable editor transactions. Switching
-between pages is not an edit — paging around never dirties the asset.
+Add, Duplicate, Delete and the moves are undoable editor transactions. Switching between
+pages is not an edit: paging around never dirties the asset, and a stroke started on the page
+you are leaving is cancelled rather than committed onto the new one.
 
-### Page Setup
+## Layers
 
-| Control | Range | Notes |
-|---|---|---|
-| Size px | 128–4096 per axis, step 64 | The document's Page Size Pixels. Applied on commit, not live — resizing the render target mid-drag is expensive. |
-| Margins | 0–600 px | Two spinboxes: the first sets left *and* right, the second top *and* bottom. |
-| Line height | 0.6–2.5 | The document's Line Height Percentage. |
+The bottom half of the right panel is the layer stack for the current page, titled
+**Layers (front to back)** — the front of the page is the top row. Drag a row to restack it,
+right-click it to rename, and use the eye and padlock to hide or lock it. The **+ Text**,
+**+ Image**, **+ Drawing**, **Duplicate** and **Delete** buttons build the stack, and the
+properties below the list change with the selected layer's type.
 
-### Paper & Ink
+[Layers](/plugins/inkwell/authoring/layers) is the full reference for the panel and for what each layer type
+carries.
 
-Document-wide paper texture (an asset picker), paper tint, ink tint, and ink strength
-(0–1) — the same properties described in
-[Page Documents](/plugins/inkwell/authoring/documents#paper--ink). The tint color pickers refresh on
-mouse-up so the page doesn't re-bake once per color-wheel pixel.
+## Drawing Tools
 
-### Default Text Style
+The **Drawing Tools** section near the bottom of the left panel holds the **Brush** and
+**Erase** tools, the brush type (Pen, Pencil, Marker, Crayon, Highlighter), ink color, size
+in page pixels, and opacity. Picking a tool switches the page into Draw mode.
 
-The default font family (shown as *(project default)* when the document has none of its
-own), default size (6–300), and default color. Picking a family here also sets the
-document's Default Typeface to that family's regular face. Changes restyle all untagged
-text immediately.
+[Drawing](/plugins/inkwell/authoring/drawing) covers the brushes, the eraser and how strokes are stored.
 
-### Save Document
+## Paper & Ink
 
-Saves the asset **and refreshes its hard font references** so every font used in the
-markup gets cooked. Always save from here (or the normal editor save — the document is
-marked dirty by edits either way), and don't clear the
-[Font References](/plugins/inkwell/authoring/documents#font-references) list.
+The **Paper & Ink** section sets the document's paper: **Texture asset** or **Generated**,
+the ruling settings when generated, the per-page **Paper override**, and the paper tint, ink
+tint and ink strength.
 
-## Right panel
+[Paper](/plugins/inkwell/authoring/paper) covers generated paper in full;
+[Page Documents](/plugins/inkwell/authoring/documents#paper--ink) lists the properties and their defaults.
 
-### Rendered Preview (game-true ink)
+## Rendered Preview (game-true ink)
 
-The preview re-bakes at most five times a second while you edit, through the exact runtime
-path: a linear, transparent ink render target drawn by the same widget bake the game uses,
-then composited through the unlit preview material (**Page Preview Material** in
-[Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings), by default
-`M_PageComposite_Preview`) — the exact multiply the game's page material does.
+The top half of the right panel is not another view of the page surface — it is the actual
+bake. Inkwell renders the page's layers into a linear, transparent ink render target through
+the same widget bake the game uses, then composites that through the unlit preview material
+(**Page Preview Material** in
+[Project Settings → Plugins → Inkwell](/plugins/inkwell/reference/settings)) — the exact multiply the game's
+page material performs.
 
-If the preview material can't be loaded (for example, plugin content was never migrated),
-the editor logs a warning once and falls back to a paper + ink alpha stack, which still
-previews well enough to author with.
+That is why the two panes differ, and the differences are the point:
+
+- The surface carries editing furniture the preview does not: the caret, text box outlines,
+  image drag boxes, the mode banner.
+- **Ink Tint** and **Ink Strength** are material work, so they show up in the preview, not on
+  the surface.
+- The preview shows the ink as it will sit on the paper — where a stroke lets grain through,
+  where a highlighter goes under the writing.
+
+Bakes are coalesced to at most five a second while you edit, and are held off entirely during
+a **Size px** drag, when every tick would reallocate the render targets. Hidden layers are
+skipped by the preview and the bake alike.
+
+<Warning>
+If the preview material cannot be loaded — a project that never migrated the plugin's
+material content, for instance — the editor logs one warning naming the setting and falls
+back to a paper + ink alpha stack. That still previews well enough to author with, but it is
+not the game's exact composite. Point **Page Preview Material** at a valid material to get
+the real thing back.
+</Warning>
 
 <Tip>
-Placed pages in the level viewport also update live as you edit, because every edit bumps
-the document's [content revision](/plugins/inkwell/authoring/documents#the-content-revision) — no need to
-press Play to check a layout in context.
+Pages already placed in the level update live as you edit, because every edit bumps the
+document's [content revision](/plugins/inkwell/authoring/documents#the-content-revision) and re-sizes the
+placed sheets. You do not need to press Play to check a layout in context.
 </Tip>
 
-### Images & Page
+## Save Document
 
-A list of the current page's images, an **Add Image** button, the selected image's
-properties, and the page's **Paper override**.
+The primary button at the bottom of the left panel saves the asset — and, before it does,
+**rebuilds the document's hard font references**: *"Saves the Page Document and refreshes its
+hard font references so the fonts cook."*
 
-**Add Image** places a new image box at (0.35, 0.35) with width 0.3 and auto height,
-selects it, and turns on image edit mode so you can drag it immediately. Assign its
-texture from the picker in this panel.
+That second half matters more than it sounds. Markup stores fonts as string paths, which the
+cooker cannot follow. Save Document walks every text layer on every page, collects the fonts
+used, adds the effective default font, and writes them into the document's **Font References**
+list so they get cooked. Anything you are still typing is flushed into the file first.
 
-With an image selected:
+<Warning>
+Saving the asset another way — Ctrl+S, Save All, the Content Browser — writes the pages
+correctly but does not refresh the font references. Finish an authoring session with
+**Save Document** at least once, or a packaged build can render fallback glyphs where a
+styled run's font failed to cook. Never clear
+[Font References](/plugins/inkwell/authoring/documents#pages) by hand.
+</Warning>
 
-| Property | Range | Notes |
-|---|---|---|
-| Texture | any Texture 2D | The image to draw. An image without a texture still gets a drag box so it can be positioned first. |
-| X / Y | −0.5 to 1.5 | Normalized position. The range deliberately extends past the page so images can bleed off the edge. |
-| Width | 0.01–1.5 | Normalized width. |
-| Height | 0–1.5 | Normalized height; 0 keeps the texture's aspect ratio. |
-| Rotation | −180° to 180° | Rendered about the image center. |
-| Opacity | 0–1 | Image opacity. |
-| Behind text | on/off | Draws behind the text — letterheads, watermarks, ruled lines. |
+## Undo and redo
 
-With **Edit Images** on, every image gets an outline on the page surface — orange when
-selected, blue otherwise. Click to select, drag to move; drags convert screen pixels back
-into page pixels regardless of zoom. Adding and deleting images are undoable transactions.
+Every edit the Page Editor makes is a normal editor transaction on the document asset, so it
+lands on the editor's own undo stack and the History panel lists Inkwell's steps by name
+("Draw Stroke", "Move Text Box", "Reorder Layer", "Set Page Width (cm)"). The Page Editor
+window binds no undo keys of its own — undo and redo from the editor's usual **Edit → Undo**
+and **Edit → Redo** — and the open window follows the document wherever the stack takes it.
 
-<Note>
-The drag outline stays axis-aligned even for rotated images — a known, accepted
-limitation. The image itself renders rotated correctly.
-</Note>
+Two behaviors are worth knowing:
 
-**Paper override (this page)** replaces the document's paper texture for the current page
-only — the aged first page of an otherwise clean journal, for instance.
+- **Typing is grouped into bursts.** A run of keystrokes is one undo step, closed by the first
+  pause of about a second, by switching page or layer, or by any other edit. One step per
+  keystroke would make Ctrl+Z useless.
+- **One gesture is one step.** A slider drag, an image drag or a single brush stroke undoes as
+  a whole, including the drawing layer a stroke had to create to live in — undoing a mark that
+  left a new empty layer behind would not be undoing the mark.
 
-## Practical notes
+Undo also refreshes the window from the asset, so the text box, the layer list and the preview
+all follow the document back.
 
-- **Ctrl+Z** works inside the text box for text edits; page and image operations are
-  editor transactions too.
-- Underline and strikethrough draw via line highlighters that only exist after the text is
-  re-marshalled; the editor triggers that refresh when you apply the style, so a moment's
-  flicker is expected.
-- Newly imported font families appear in every open Page Editor's font pickers without
-  reopening the window.
-
-## Next steps
+## Next
 
 <CardGroup cols={2}>
-  <Card title="Page Documents" icon="file-lines" href="/plugins/inkwell/authoring/documents">
-    Every property the editor edits, plus the markup model and Blueprint API.
+  <Card title="Layers" icon="clone" href="/plugins/inkwell/authoring/layers">
+    The stack that makes up a page, and everything the Layers panel does.
   </Card>
-  <Card title="Fonts" icon="font" href="/plugins/inkwell/authoring/fonts">
-    The bundled families and importing your own with the import dialog.
+  <Card title="Drawing" icon="paintbrush" href="/plugins/inkwell/authoring/drawing">
+    The five brushes, the eraser, and how strokes are stored.
+  </Card>
+  <Card title="Page Documents" icon="file-lines" href="/plugins/inkwell/authoring/documents">
+    Every property the editor edits, with its real default.
   </Card>
   <Card title="Place it in the level" icon="scroll" href="/plugins/inkwell/components/page-actor">
     The ready-made Ink Page actor — drag in, pick your document, done.
-  </Card>
-  <Card title="Rendering reference" icon="gears" href="/plugins/inkwell/reference/rendering">
-    The bake path behind the editor's game-true preview.
   </Card>
 </CardGroup>

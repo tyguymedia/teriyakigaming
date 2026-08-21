@@ -1,125 +1,248 @@
 ---
 title: "Ink Page Actor"
-description: "A ready-made placeable sheet of paper: drag it into the level, pick a document, done."
+description: "The placeable sheet of paper: drag it into the level, pick a document, done."
 icon: "scroll"
 ---
 
-**Ink Page** (`AInkPageActor`) is a placeable sheet of paper that shows a
-[Page Document](/plugins/inkwell/authoring/documents): drag it into the level from the Place Actors
-panel, pick a document, done. The sheet is sized in real-world centimetres (A4 by
-default) and the page content is baked onto it by the Inkwell page material — with
-[live preview in the editor viewport](/plugins/inkwell/components/page-display#editor-preview), so you
-see the page without pressing Play.
+**Ink Page** (`AInkPageActor`) is a placeable sheet of paper that shows an
+[Ink Page Document](/plugins/inkwell/authoring/documents). Drag it into the level from the Place Actors
+panel, assign a document, and the page is there — sized in real-world centimeters and
+[previewed live in the viewport](/plugins/inkwell/components/page-display#editor-preview), without
+pressing Play.
 
-It deliberately contains **no input or interaction logic**. Wire your own: call
-**Next Page** / **Previous Page** from whatever your project uses (a trigger volume, an
-interaction component, a widget button) and implement the **On …** events to react. See
-the [integration guide](/plugins/inkwell/guides/integration).
+It deliberately contains **no input or interaction logic**. Call **Next Page** /
+**Previous Page** from whatever your project already uses — a trigger volume, an
+interaction component, a widget button — and implement the **On …** events to react. If
+you want interaction supplied for you, add the [Ink Page Reader](/plugins/inkwell/components/reader) (and
+optionally the [Ink Page Interactor](/plugins/inkwell/components/interactor)) to your player instead.
 
-## What's inside
+## Placing one
 
-The actor is a thin, convenient wrapper around three components:
+<Steps>
+<Step title="Find it in Place Actors">
+Open **Window → Place Actors** and search for `Ink Page`. Drag the result into the level.
+You get a blank A4 sheet: no document is assigned yet, so the actor shows the paper it is
+about to print on.
+</Step>
+<Step title="Assign a document">
+Select the actor, open the **Page Display** component in the Details panel, and set
+**Document**. The sheet re-fits to that document's page size and the first page bakes
+into the viewport immediately.
+</Step>
+<Step title="Place and orient it">
+Move and rotate the actor as usual. If the writing ends up sideways for the way you have
+laid the sheet down, set **Page Yaw** on the actor rather than rotating the mesh by hand.
+</Step>
+</Steps>
+
+<Warning>
+A sheet that renders as a gray checkerboard, or shows nothing at all, almost always means
+the page material or the sheet mesh could not be loaded. Check
+**Project Settings → Plugins → Inkwell** — see [Settings](/plugins/inkwell/reference/settings).
+</Warning>
+
+## What it is made of
+
+The actor is a thin wrapper around three components, all exposed as read-only properties
+so a Blueprint subclass can reach them:
 
 | Component | Type | Role |
 | --- | --- | --- |
 | **Page Root** (`PageRoot`) | Scene Component | The actor's root. Move and rotate the actor with this; the sheet below it carries the page size. |
-| **Page Mesh** (`PageMesh`) | Static Mesh Component | The paper sheet itself. Uses the Inkwell page sheet mesh (from [Project Settings → Inkwell](/plugins/inkwell/reference/settings)) unless you assign your own. Movable, so size and yaw can change at runtime. |
-| **Page Display** (`PageDisplay`) | [Ink Page Display](/plugins/inkwell/components/page-display) | Does the actual work: bakes the document's page and applies it to the sheet. It is explicitly pointed at **Page Mesh**, so adding extra meshes in a Blueprint subclass will not confuse it. |
+| **Page Mesh** (`PageMesh`) | Static Mesh Component | The paper itself. Filled in with the Inkwell page sheet mesh (`/Inkwell/Meshes/SM_PageSheet`, configurable in [Settings](/plugins/inkwell/reference/settings)) only when the slot is empty — a mesh you assign is never overwritten. Movable, with overlap events off. |
+| **Page Display** (`PageDisplay`) | [Ink Page Display](/plugins/inkwell/components/page-display) | Does the work: bakes the document's page and applies it to the sheet. |
 
-All three are visible (read-only) properties on the actor, so a Blueprint subclass can
-reach the display component directly — for example to set **Loop Pages** or bind
-**On Page Changed** on the component itself.
+**Page Display** is explicitly pointed at **Page Mesh** through its **Target Mesh**
+property, so an extra mesh added in a Blueprint subclass can never win the "first mesh on
+the actor" search and steal the page. For the same reason the display component's
+[**Procedural Paper**](/plugins/inkwell/components/page-display#procedural-paper) never spawns a second
+sheet here: the actor already supplies one.
+
+The actor does not tick.
 
 ## Sheet sizing
 
+**How big the paper is, is not a property of the actor.** It comes from the page: the
+document's own size — the **Page Width Cm** you authored, with the height derived from the
+**Page Size Pixels** aspect ratio — multiplied by
+[**Page Scale**](/plugins/inkwell/components/page-display#sizing) on the **Page Display** component.
+Because there is only ever that one size, the paper can never be a different shape from
+the page printed on it, and the writing can never come out stretched.
+
+The actor owns only the two properties around that:
+
 | Property | Type | Default | What it does |
 | --- | --- | --- | --- |
-| **Page Size Cm** | 2D Vector | `21.0 × 29.7` | Real-world size of the sheet in centimetres (the default is A4). Swap in Letter (`21.6 × 27.9`) or any custom size and the page content re-fits automatically. |
-| **Page Yaw** | Float | `0.0` | Spins the sheet about its own normal, in degrees, so the writing reads upright for your placement. |
-| **Auto Size Sheet** | Boolean | `true` | Let **Page Size Cm** and **Page Yaw** drive the sheet's transform. Turn this off to position the mesh entirely by hand. |
+| **Page Yaw** (`PageYaw`) | Float | `0.0` | Spins the sheet about its own normal, in degrees, so the writing reads upright for the way you placed it. Clamped to ±360. |
+| **Auto Size Sheet** (`bAutoSizeSheet`) | Boolean | `true` | Let the page's own size (document × **Page Scale**) and **Page Yaw** drive the sheet's relative transform. Turn it off and the actor stops touching the mesh entirely — position, rotate and scale **Page Mesh** by hand. |
 
-The Inkwell page sheet mesh is a **100 cm plane**, so centimetres map straight to scale —
-a `21.0 × 29.7` page is simply the plane scaled to `0.21 × 0.297`. If you assign your own
-static mesh to **Page Mesh**, the actor never overrides it; it only fills in the default
-sheet mesh when the slot is empty.
+Both are editable in the Details panel and readable — but not writable — from Blueprint.
+
+The Inkwell page sheet is a **100 cm plane**, so centimeters map straight to relative
+scale: a 21 × 28.7 cm page is the plane at `0.21 × 0.287`. Sizing is re-applied on
+construction, on any property edit, and whenever the display component broadcasts
+[**On Page Size Changed**](/plugins/inkwell/components/page-display#events) — which is how a
+**Set Document** call bringing in a differently sized document, or a **Page Scale** drag,
+re-fits the sheet live. **Page Mesh** is Movable precisely so all of that also works at
+runtime.
+
+## Collision
+
+Inkwell does **not** override collision on this actor's sheet. **Page Mesh** is created
+with overlap events disabled and is otherwise left on the standard Static Mesh Component
+defaults, which resolve to the collision authored on `SM_PageSheet`: a simple box
+primitive on the **Block All** preset.
+
+What that means in practice:
+
+- An interaction line trace on **Visibility** — including the
+  [Ink Page Interactor](/plugins/inkwell/components/interactor)'s focus trace — hits the sheet. That is
+  what makes a placed Ink Page readable out of the box.
+- The sheet is also a **solid blocker**. A page lying on a desk is a thin box the player
+  can walk into. The [Ink Page Reader](/plugins/inkwell/components/reader) switches the whole actor's
+  collision off for the duration of a read for exactly this reason, so a page held at the
+  reader's face never bumps the player or swallows their traces.
+
+If you want a page that answers traces but never blocks movement, set it yourself:
+
+<Steps>
+<Step title="Select the sheet">
+Select the actor in the level (or open your Blueprint subclass) and pick the **Page Mesh**
+component in the Details / Components panel.
+</Step>
+<Step title="Make it query-only">
+Under **Collision**, set **Collision Presets** to `Custom`, then **Collision Enabled** to
+**Query Only (No Physics Collision)**.
+</Step>
+<Step title="Answer only the trace you use">
+Set every response to **Ignore**, then set **Visibility** — or whatever channel your
+interaction system traces on, the interactor's **Trace Channel** — to **Block**.
+</Step>
+</Steps>
 
 <Note>
-Sizing and yaw are re-applied whenever you edit the properties or the actor is
-constructed, and they work at runtime too — **Page Mesh** is Movable for exactly this
-reason. With **Auto Size Sheet** off, the actor stops touching the mesh transform
-entirely.
+That recipe is exactly what the [Ink Page Display](/plugins/inkwell/components/page-display) component
+applies to the sheet it spawns for actors that have no mesh of their own: query-only,
+object type `WorldDynamic`, ignore everything, block **Visibility** and every project
+trace channel. If you would rather inherit that behavior than configure it, use a bare
+actor with an Ink Page Display component instead of this actor.
 </Note>
 
 ## Blueprint API
 
-These functions all forward to the internal [Ink Page Display](/plugins/inkwell/components/page-display)
-component, so they behave identically:
+Every function forwards to the internal [Ink Page Display](/plugins/inkwell/components/page-display)
+component and behaves identically:
 
-| Function | Returns | Notes |
+| Node | Returns | What it does |
 | --- | --- | --- |
-| **Set Document** (`SetDocument`) | — | Swaps in a different Page Document and shows the given page (default 0). |
-| **Set Page Index** (`SetPageIndex`) | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. |
-| **Next Page** (`NextPage`) | Boolean | Turns to the next page. Returns `false` when already on the last page. |
-| **Previous Page** (`PreviousPage`) | Boolean | Turns to the previous page. Returns `false` when already on the first page. |
-| **Refresh** (`Refresh`) | — | Re-bakes and re-applies the current page. Call after editing the document at runtime. |
-| **Get Page Count** (`GetPageCount`) | Integer | Pages in the assigned document (0 if none). |
-| **Get Current Page Index** (`GetCurrentPageIndex`) | Integer | The page currently shown (0 = first page). |
-| **Get Document** (`GetDocument`) | Ink Page Document | The document currently assigned to this sheet. |
+| **Set Document** | — | Swaps in a different Ink Page Document and shows the given page (default 0). |
+| **Set Page Index** | Boolean | Shows a specific page (0 = first). Out-of-range values are clamped. True only when the page actually changed. |
+| **Next Page** | Boolean | Turns to the next page. False when already on the last page — unless the display's **Loop Pages** is on, which wraps to the first. |
+| **Previous Page** | Boolean | Turns to the previous page. False when already on the first page — unless **Loop Pages** wraps to the last. |
+| **Refresh** | — | Re-bakes and re-applies the current page. Call it after editing the document at runtime. |
+| **Get Page Count** | Integer | Pages in the assigned document (0 if none). |
+| **Get Current Page Index** | Integer | The page currently shown (0 = first). |
+| **Get Document** | Ink Page Document | The document currently assigned to this sheet. |
 
 ## Events and interaction hooks
-
-The actor exposes three Blueprint-implementable events (override them in a Blueprint
-subclass), plus two callable functions that let *your* interaction system drive two of
-them:
 
 | Event | Fires when | Parameters |
 | --- | --- | --- |
 | **On Page Changed** | A different page is shown — a page turn, a document swap, or the first draw at game start. | New Page Index (0-based), Page Count |
-| **On Interacted** | Your code calls **Notify Interacted** (`NotifyInteracted`). | Interactor (Actor) |
-| **On Focus Changed** | Your code calls **Notify Focus Changed** (`NotifyFocusChanged`). | Focused (Boolean), Interactor (Actor) |
+| **On Interacted** | Your code calls **Notify Interacted**. | Interactor (Actor) |
+| **On Focus Changed** | Your code calls **Notify Focus Changed**. | Focused (Boolean), Interactor (Actor) |
 
-The pattern: your interaction system detects the player looking at or using the page,
-then calls **Notify Focus Changed** / **Notify Interacted** on the actor. The actor
-relays these straight to the events, where your Blueprint subclass decides what happens —
-show a "Read" prompt, open your reading UI, turn a page, anything.
+All three are Blueprint-implementable events: override them in a Blueprint subclass. The
+actor binds the display component's delegate before Begin Play, so **On Page Changed**
+also fires for the very first page drawn at game start.
 
-```text Example flow
+**Notify Interacted** and **Notify Focus Changed** are the seam for your own interaction
+system. Your code decides *when* the player is looking at or using the page; the actor
+turns that into an event your Blueprint reacts to:
+
+```text A focus-and-use flow
 Your interaction trace hits the Ink Page actor
-  → call Notify Focus Changed (Focused = true)
-      → On Focus Changed runs → show "Press E to read"
+  -> call Notify Focus Changed (Focused = true, Interactor = the player)
+       -> On Focus Changed runs -> show "Press E to read"
 Player presses your interact key
-  → call Notify Interacted
-      → On Interacted runs → e.g. Next Page, or begin reading
+  -> call Notify Interacted (Interactor = the player)
+       -> On Interacted runs -> Begin Reading Actor, or Next Page, or open your UI
 ```
 
-<Tip>
-If you don't want to build the interaction side yourself, add the bundled
-[Ink Page Interactor](/plugins/inkwell/components/interactor) to your pawn — it performs the line trace
-and focus bookkeeping for you — and the [Ink Page Reader](/plugins/inkwell/components/reader) to snap
-pages into view.
-</Tip>
+Neither notify function does anything on its own — they are relays. Nothing in the plugin
+calls them for you.
 
-## When to use it
+## Subclassing it
 
-Use **Ink Page** when you want a single loose sheet in the world with zero setup. When
-the page belongs on an existing prop's mesh, add
-[Ink Page Display](/plugins/inkwell/components/page-display) to that actor instead; when you want a
-physical pile of sheets with animated page turns, use
-[Ink Page Stack](/plugins/inkwell/components/page-stack).
+Use a Blueprint subclass when several notes in your level should behave the same way:
+share the interaction reactions, the audio and the mesh once.
 
-## See also
+<Steps>
+<Step title="Create the Blueprint">
+Right-click in the Content Browser → **Blueprint Class**, search the **All Classes**
+picker for `Ink Page`, and choose it. (The UMG widget of the same display name is not
+Blueprintable, so only the actor appears here.)
+</Step>
+<Step title="Adjust the inherited components">
+Select **Page Mesh** in the Components panel to swap in your own paper mesh or change its
+collision, and **Page Display** to set **Page Scale**, **Loop Pages** or
+**Apply On Begin Play**. Both are native components: their defaults are editable here and
+again per placed instance.
+</Step>
+<Step title="Implement the events">
+In the Event Graph, right-click and add **Event On Focus Changed**, **Event On
+Interacted** and **Event On Page Changed**. Wire your prompt widget, page-turn sound and
+"3 / 12" label to them.
+</Step>
+<Step title="Drive them from your interaction system">
+From your interactable base class or interface, call **Notify Focus Changed** and
+**Notify Interacted** on this actor. The full pattern is in the
+[integration guide](/plugins/inkwell/guides/integration).
+</Step>
+<Step title="Place it">
+Drag the Blueprint into the level and set **Document** per instance. Everything else is
+inherited.
+</Step>
+</Steps>
+
+<Warning>
+Do not add a second mesh component to the subclass and expect the page to land on it.
+**Page Display** is pinned to **Page Mesh**. To draw a page onto a different mesh, point
+that component's **Target Mesh** at it — or, better, use a plain actor with its own
+[Ink Page Display](/plugins/inkwell/components/page-display) component.
+</Warning>
+
+## When to use it, and when not to
 
 <CardGroup cols={2}>
-  <Card title="Ink Page Display" icon="file-lines" href="/plugins/inkwell/components/page-display">
-    The component doing the work inside this actor.
-  </Card>
-  <Card title="Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
-    A multi-sheet pile for longer documents.
+<Card title="Use Ink Page" icon="scroll">
+A loose sheet in the world — a note on a desk, a letter on a bed, a poster on a wall —
+with zero setup. The mesh, the sizing and the yaw are handled for you.
+</Card>
+<Card title="Use Ink Page Display" icon="note-sticky" href="/plugins/inkwell/components/page-display">
+The page belongs on something you already have: a prop, a clipboard, an existing
+interactable Blueprint. Add the component to that actor and point **Target Mesh** at its
+mesh — or leave the actor mesh-less and let **Procedural Paper** make the sheet.
+</Card>
+<Card title="Use Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
+A physical pile of sheets for a journal or book, with real thickness and animated page
+turns.
+</Card>
+<Card title="Use the Ink Page widget" icon="window-maximize" href="/plugins/inkwell/components/page-widget">
+The page is read on screen in UMG rather than in the world.
+</Card>
+</CardGroup>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Ink Page Display" icon="note-sticky" href="/plugins/inkwell/components/page-display">
+    The component doing the work inside this actor, and everything it can do on your own actors.
   </Card>
   <Card title="Integration guide" icon="plug" href="/plugins/inkwell/guides/integration">
-    Wiring the notify hooks into your own interaction system.
+    Wiring the notify hooks into an interaction system you already have.
   </Card>
-  <Card title="Page Documents" icon="pen-nib" href="/plugins/inkwell/authoring/documents">
-    Authoring the content the sheet displays.
+  <Card title="Ink Page Reader" icon="book-open-reader" href="/plugins/inkwell/components/reader">
+    Snapping a placed page into the player's view to read it.
   </Card>
 </CardGroup>

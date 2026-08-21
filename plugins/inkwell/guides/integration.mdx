@@ -1,324 +1,411 @@
 ---
-title: "Integrating with your game"
-description: "Plug Inkwell into your own interaction, input, and UI systems — from zero interaction code to a fully custom setup"
+title: "Integrating with your interaction system"
+description: "Add Inkwell pages to a project that already has a base InteractableActor Blueprint — component setup, the mesh decision, opening the reading view from your own Interact event, page turns, and closing."
 icon: "plug"
 ---
 
-Inkwell deliberately knows nothing about your input, interaction, inventory, or UI
-systems. It ships the *reading motion* and the *paper rendering*; your game supplies the
-"when". This guide shows the seams where your game plugs in. Everything here works from
-Blueprint alone (C++ access exists for all of it).
+This guide assumes the situation most projects are actually in.
 
-## Pick your tier
+**The scenario.** Your project already has a working interaction system. Every interactable
+in the level inherits from a base Blueprint — call it `BP_InteractableActor` — which owns
+the collision, the outline highlight, the "Press E" prompt, and an **Interact** event your
+player pawn fires at whatever it is looking at. You want a readable note to be one more
+interactable in that system. You do **not** want Inkwell's own trace, its own prompt, or
+its own key bindings.
 
-Three tiers, depending on how much interaction code you already have:
+That works, and it takes one component and about six nodes. Inkwell's runtime is built for
+it: the [Ink Page Display](/plugins/inkwell/components/page-display) component
+(`UInkPageDisplayComponent`) renders pages and exposes **Next Page** / **Previous Page** /
+**Set Page Index**, and nothing else in the plugin is required. The
+[Ink Page Interactor](/plugins/inkwell/components/interactor) is a self-contained demo implementation —
+you are replacing it with the system you already have.
+
+<Note>
+Everything below is Blueprint-only. Every Inkwell function named here is
+`BlueprintCallable` or `BlueprintPure` — on a component you add from the Components panel,
+or on the Ink Page widget you drag in from the UMG palette.
+</Note>
+
+## The walkthrough
+
+<Steps>
+  <Step title="Add an Ink Page Display to your interactable">
+    Open the Blueprint you want to be readable. Either an existing interactable, or a new
+    child of your base class: right-click `BP_InteractableActor` and choose **Create Child
+    Blueprint Class**, then name it `BP_ReadableNote`.
+
+    1. In the **Components** panel, click **Add** and search for **Ink Page Display**.
+       (It is in the **Inkwell** class group; the C++ class is `UInkPageDisplayComponent`.)
+    2. Select the new component and set **Document** (category *Inkwell | Page*) to your
+       [Ink Page Document](/plugins/inkwell/authoring/documents) asset.
+    3. Leave **Page Index** at 0.
+
+    That is the whole world-side setup. **Preview In Editor** is on by default, so the page
+    appears on the actor in the level viewport without pressing Play. Your base class is
+    untouched — Inkwell added a component, it did not replace anything, so your collision,
+    focus, save flags, and quest hooks all keep working.
+
+    <Frame caption="An Ink Page Display component in the Details panel: Document, Page Index, Page Scale, Target Mesh and Procedural Paper.">
+      <img src="/images/inkwell/display-component-details.png" alt="Details panel of an Ink Page Display component" />
+    </Frame>
+
+    The properties that matter when you are integrating:
+
+    | Property | Type | Default | What it does |
+    |---|---|---|---|
+    | Document (`Document`) | Ink Page Document | None | The authored page content to show. Writable from Blueprint; **Set Document** swaps it and re-bakes. |
+    | Page Index (`PageIndex`) | Integer | 0 | Which page is shown. Out-of-range values are clamped. |
+    | Page Scale (`PageScale`) | Float | 1.0 | Multiplies the document's authored size for this component only. Both axes together, so the writing never stretches. |
+    | Material Slot (`MaterialSlot`) | Integer | 0 | Which material slot on the target mesh the page is drawn into. Advanced display. |
+    | Target Mesh (`TargetMesh`) | Component reference | None | The mesh the page is drawn onto. Empty = the first mesh component found on the actor. |
+    | Apply On Begin Play (`bApplyOnBeginPlay`) | Bool | true | Draw the page when play starts. Turn off to reveal it yourself later with **Refresh**. |
+    | Loop Pages (`bLoopPages`) | Bool | false | Wrap from the last page back to the first when turning pages. |
+    | Procedural Paper (`bProceduralPaper`) | Bool | true | Spawn and size a paper sheet **when the actor has no mesh of its own**. See the next step. |
+    | Preview In Editor (`bPreviewInEditor`) | Bool | true | Bake the page live in the level viewport, without PIE. Advanced display. |
+  </Step>
+
+  <Step title="Decide where the page is drawn: your mesh, or Inkwell's sheet">
+    The component draws onto exactly one mesh, resolved in this order: the explicit
+    **Target Mesh** pick, then the first mesh component on the actor, and only if there is
+    no mesh at all, the sheet **Procedural Paper** spawns.
+
+    <Tabs>
+      <Tab title="Use your own mesh">
+        Set **Target Mesh** with the component picker to the mesh that should carry the
+        page — the folded letter, the clipboard, the page face of a book prop. Or leave it
+        empty and let the component find the actor's first mesh component.
+
+        What this choice implies:
+
+        - **Inkwell replaces the material** in **Material Slot** with a dynamic instance of
+          the page ink material, and pushes the baked ink plus the document's paper
+          settings into it. Whatever material was in that slot is gone, for that slot.
+        - **The mesh needs clean 0–1 UVs across the page face.** The ink is sampled across
+          the whole 0–1 range; an atlas-mapped prop mesh garbles the text.
+        - **Inkwell never resizes your mesh.** The page's aspect ratio comes from the
+          document's **Page Size Pixels**; if your mesh face is not that shape, the writing
+          is stretched to fit it. Match the mesh to the document's aspect — **Get Effective
+          Page Size Cm** on the component gives you the exact centimeters — or accept the
+          distortion.
+        - **Procedural Paper does nothing** while the actor supplies a mesh. It is a
+          fallback, never a takeover: it can never replace a prop you provided.
+      </Tab>
+      <Tab title="Let Inkwell make the sheet">
+        Leave **Target Mesh** empty, leave **Procedural Paper** on, and give the actor no
+        mesh component of its own.
+
+        What this choice implies:
+
+        - A static mesh component is spawned at registration, attached to the actor's root,
+          and given the project's page sheet mesh (`/Inkwell/Meshes/SM_PageSheet`, a 100 cm
+          plane — repointable in [Settings](/plugins/inkwell/reference/settings)).
+        - It is **sized from the document**: **Page Width Cm**, with the height derived from
+          the page's aspect ratio, multiplied by **Page Scale**. Swap in a document authored
+          at a different size and the sheet resizes itself, live in the editor viewport.
+        - The sheet is **transient**. It is derived state, respawned from the document on
+          load, and never saved into the level.
+        - Its collision is **query-only**, blocking the **Visibility** channel and game
+          trace channels 1–18 and ignoring everything else. Your interaction trace can hit
+          it on any of those channels; it never blocks the player, physics, or the camera,
+          and never affects navigation.
+        - The actor needs a **root component** for the sheet to attach to.
+
+        <Warning>
+        A base `BP_InteractableActor` usually already has a mesh component — often an empty
+        `StaticMesh` component with no mesh assigned. That still counts as "the actor
+        supplies a mesh", so **no sheet is spawned** and the page is drawn onto an invisible
+        mesh. Either assign a real mesh to that component and point **Target Mesh** at it,
+        or derive the readable from a base class that has no mesh component.
+        </Warning>
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Open the reading view from your Interact event">
+    Now the only Inkwell-specific wiring in the whole integration: what your existing
+    **Interact** event does. Two shapes — pick one.
+
+    <Tabs>
+      <Tab title="Drive an Ink Page Reader (page floats up in the world)">
+        The [Ink Page Reader](/plugins/inkwell/components/reader) (`UInkPageReaderComponent`) contains no
+        input handling whatsoever. It is a pure "float this page up to the camera and put it
+        back afterwards" service that you call.
+
+        **On the player pawn, once:**
+
+        1. **Components → Add → Ink Page Reader**. Do not add an Ink Page Interactor.
+        2. Optionally tune **View Distance** (45 cm), **View Offset** (0, -2), **Blend
+           Time** (0.3 s), **Follow Camera** (true), **Lock Movement While Reading** (true)
+           and **Lock Look While Reading** (true).
+
+        **In `BP_ReadableNote`, override your base class's interact event:**
+
+        1. From the interacting pawn (your event's instigator pin) → **Get Component by
+           Class**, Component Class = **Ink Page Reader**. The return pin is typed from
+           that class pick, so it already is an Ink Page Reader — no **Cast To** node is
+           needed.
+        2. → **Is Reading** → **Branch**.
+           - **True** → **End Reading**, so the same key closes the page.
+           - **False** → **Begin Reading Actor**, Page Actor = **Self**.
+
+        **Begin Reading Actor** finds the Ink Page Display on the actor for you. It returns
+        false when there is none, when something is already being read, or when the display
+        has no owning actor. **Begin Reading** takes the component directly if you already
+        have it in hand.
+
+        <Warning>
+        The reader moves **the whole page actor** to the camera: it saves the actor's
+        transform, switches off physics simulation and collision for the ride, blends the
+        actor up, and puts it back exactly where it was on **End Reading**. Set the readable
+        actor's root **Mobility** to *Movable*, and do not use this path for a page printed
+        on a desk, a door, or anything else that must stay put — use the widget tab for
+        those.
+        </Warning>
+
+        <Note>
+        **Reading Rotation Offset** (default Pitch 0, Yaw 90, Roll 90) is tuned for the
+        Inkwell page sheet: a flat plane whose printed face points up. If you read from your
+        own mesh and the page arrives face-down or sideways, this is the property to change.
+        </Note>
+      </Tab>
+      <Tab title="Show it on screen (UMG)">
+        Nothing moves in the world. The page is drawn full-screen by the same bake code, so
+        it looks identical to the in-world sheet.
+
+        **Build the reading widget, once:**
+
+        1. Create a Widget Blueprint, `WBP_PageReader`.
+        2. In the palette, under the **Inkwell** category, drag an **Ink Page** widget
+           (`UInkPageWidget`) onto the canvas and tick **Is Variable**. Name it `PageView`.
+           It scales to fit whatever slot you give it, keeping the page's aspect ratio.
+        3. Add your own close button and page buttons around it if you want them.
+
+        **In `BP_ReadableNote`, on your interact event:**
+
+        1. **Create Widget**, Class = `WBP_PageReader`, Owning Player = **Get Player
+           Controller**. Promote the return value to a variable, `ActiveReader`.
+        2. Drag from the Ink Page Display component and get its **Document** variable.
+        3. On the widget: **Set Document** (Target = `PageView`), New Document = that
+           document, New Page Index = the display's **Get Current Page Index**. The widget's
+           **Document** property is read-only in Blueprint on purpose — going through **Set
+           Document** is what rebuilds the page.
+        4. **Add to Viewport**.
+        5. **Set Input Mode UI Only** (or *Game And UI*) and **Set Show Mouse Cursor** if
+           your close and turn controls are mouse-driven.
+
+        The widget also exposes **Show Paper** — draw the document's paper behind the
+        writing, or turn it off to print ink straight onto your own UI background — and
+        **Apply Ink Tint**.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Turn pages from your own input">
+    Page turning is two nodes plus a guard. Bind them wherever your project already handles
+    input: an Enhanced Input action, a UMG button, a gamepad face button.
+
+    **Reader path** — a page floating in front of the camera:
+
+    - your "next page" input → the pawn's Ink Page Reader → **Next Page**
+    - your "previous page" input → the pawn's Ink Page Reader → **Previous Page**
+
+    Both return false when nothing is being read, or when the page being read is already at
+    the end, so you can drive prompt feedback straight off the return value.
+
+    **Widget or direct path** — no reader involved: call **Next Page** / **Previous Page**
+    on the Ink Page Display component, the Ink Page widget, or the Ink Page actor. On the
+    display component, **Loop Pages** decides whether the last page wraps back to the first.
+
+    **Knowing when you are on the last page.** The display component owns that knowledge,
+    and the reader hands you the display:
+
+    1. your "next page" input → reader → **Is Reading** → **Branch** (False → do nothing).
+    2. True → reader → **Get Current Page**, which returns the Ink Page Display being read.
+    3. → **Is On Last Page** → **Branch**.
+       - **True** → reader → **End Reading** — "one more press closes the note".
+       - **False** → reader → **Next Page**.
+
+    Check **Is On Last Page** *before* calling **Next Page**, not after: **Next Page**
+    changes the answer. **Is On First Page** is the mirror image, useful for graying out a
+    "back" prompt.
+
+    For a "page 2 / 5" counter or a page-turn sound, bind **On Page Changed** on the display
+    component. It fires with **New Page Index** and **Page Count** every time the shown page
+    changes — including on **Set Document** — from any source, so one binding covers your
+    input, a cutscene, and a Blueprint that jumps straight to a specific page.
+  </Step>
+
+  <Step title="Close, and give control back">
+    **Reader path.** Call **End Reading** on the reader. It blends the actor back to exactly
+    where it was lying, restores its collision and any physics simulation it switched off,
+    and releases the movement and look locks. The locks release **the moment End Reading is
+    called**, not when the page finishes floating down, so the player is never left standing
+    still watching paper land.
+
+    **Widget path.** Call **Remove from Parent** on your stored widget reference, then **Set
+    Input Mode Game Only** and **Set Show Mouse Cursor** (false) to undo whatever you set on
+    open.
+
+    **Your HUD.** The reader broadcasts **On Reading Started** and **On Reading Ended**, both
+    carrying the Ink Page Display being read (it can be None if the page actor was destroyed
+    mid-read). Bind them on the pawn to hide your interaction prompt, crosshair, or outline
+    highlight, and to restore them afterwards. Nothing about movement or camera needs any
+    wiring: **Lock Movement While Reading** and **Lock Look While Reading** apply and release
+    themselves.
+  </Step>
+</Steps>
+
+## What not to bring across
+
+Two pieces of Inkwell exist so that an empty project is readable out of the box. In a
+project that already has an interaction system, both are duplicates, and both will fight
+you.
+
+**The Ink Page Interactor's trace.** It line-traces from the player's view every **Focus
+Check Interval** (0.1 s) out to **Interaction Distance** (300 cm) on **Trace Channel**
+(Visibility), and raises its own **On Focus Changed**. Running it alongside your own focus
+system gives you two sources of truth for "what am I looking at", two prompts to keep in
+sync, and a second definition of interaction range.
+
+**Its prompt and its key bindings.** With **Enable Default Input** on — the default — the
+interactor binds keys directly on the owning pawn: **E** to interact, **Q** to close, Left
+arrow or mouse wheel down for the previous page, Right arrow or mouse wheel up for the
+next. Those bindings sit underneath your input system and will double-fire your own
+interact key. The bundled `WBP_InkwellReadPrompt` widget likewise polls the interactor on
+Tick to drive its prompt text: a demo shortcut, not a pattern to copy into a project that
+already has a HUD.
+
+<Tip>
+If you want the interactor's trace but not its keys, that hybrid is supported: add the
+component, untick **Enable Default Input**, and call **Interact**, **Stop Reading**, **Next
+Page**, and **Previous Page** from your own bindings. It is still a second trace — worth it
+only if your own system cannot report what the player is looking at.
+</Tip>
+
+## Your system's concept, and Inkwell's equivalent
+
+| In your system | In Inkwell |
+|---|---|
+| `BP_InteractableActor` and its children | Any actor with an **Ink Page Display** component. Nothing else is required. |
+| Your focus trace, "what am I looking at" | Keep yours. Nothing outside the Ink Page Interactor tracks focus; the spawned sheet answers Visibility and game trace channels 1–18. |
+| Your "Press E to read" prompt widget | Keep yours. **On Page Changed** feeds a "page 2 / 5" counter. |
+| Your **Interact** / **Use** event | **Begin Reading Actor** (Self) on the pawn's Ink Page Reader, or **Set Document** on your Ink Page widget. |
+| Your **Cancel** / **Close** input | **End Reading**, or **Remove from Parent** on your widget. |
+| Your next / previous page input | **Next Page** / **Previous Page** on the reader, the display, or the widget. |
+| Your "disable movement while in UI" | **Lock Movement While Reading** and **Lock Look While Reading** on the reader — automatic, released on **End Reading**. |
+| Your prop's mesh | **Target Mesh** on the display component, plus **Material Slot** if the page face is not slot 0. |
+| Your item or lore data asset | The **Ink Page Document** reference on the display component. **Set Document** swaps it at runtime. |
+| A stack of loose sheets, a journal, a book | Swap the component for [Ink Page Stack](/plugins/inkwell/components/page-stack). It extends Ink Page Display, so every node above still applies unchanged. |
+
+## When it does not work
+
+<AccordionGroup>
+  <Accordion title="The page is blank">
+    Work down this list:
+
+    - **No document assigned.** A display with no **Document** deliberately draws a blank
+      sheet — the fully transparent "no ink" texture over the paper — rather than leaving
+      whatever was in the material slot before. Blank paper means "no document", not
+      "broken".
+    - **The text layer is hidden, empty, or at zero opacity.** A page is a stack of layers,
+      and hidden layers are skipped by the bake exactly as they are in the editor preview.
+      Open the document and check the eye toggles and layer opacities in the
+      [Layers](/plugins/inkwell/authoring/layers) panel.
+    - **The page ink material is missing.** If **Page Ink Material** in *Project Settings →
+      Plugins → Inkwell* cannot be loaded, Inkwell falls back to whatever material the mesh
+      already had, where the ink parameters do nothing. The Output Log carries one warning
+      per session naming the setting.
+    - **You are on a dedicated server or in a null-RHI build.** Baking a page paints a Slate
+      widget into a render target; with no Slate renderer there is no bake. Pages are a
+      client-side visual.
+  </Accordion>
+
+  <Accordion title="The text is stretched or squashed">
+    Almost always the mesh, not the document. The bake is mapped across the full 0–1 UV
+    range of the page face, and the page's shape comes from the document's **Page Size
+    Pixels** aspect ratio.
+
+    - **The mesh face is a different shape than the page.** Inkwell never resizes a mesh you
+      supplied. Scale the mesh to the document's aspect — **Get Effective Page Size Cm** on
+      the display component gives you the exact centimeters — or let **Procedural Paper**
+      make the sheet, which is the right shape by construction.
+    - **The mesh has atlas or otherwise non 0–1 UVs.** The page face needs clean 0–1 UVs
+      across it. Use `/Inkwell/Meshes/SM_PageSheet` as the reference.
+    - **You scaled the actor non-uniformly.** X and Y at different scales distorts the page
+      like any other texture. Use **Page Scale** instead: it scales both dimensions together
+      precisely so this cannot happen.
+
+    You cannot cause this by authoring: **Page Width Cm** is the only physical dimension a
+    document has, and the height is derived from it, so the paper always has the shape of the
+    page you wrote.
+  </Accordion>
+
+  <Accordion title="No paper appears at all">
+    **Procedural Paper** is a fallback, and it steps aside whenever the actor supplies a
+    mesh. The usual causes, in order:
+
+    - **The actor already has a mesh component** — including an empty one inherited from
+      your interactable base class, with no static mesh assigned. The page is being drawn
+      onto that invisible mesh. Assign a mesh to it, or point **Target Mesh** at a mesh that
+      actually renders.
+    - **Target Mesh points at something that is not a mesh component.** The pick is ignored,
+      and the component falls back to searching the actor.
+    - **The actor has no root component**, so there is nothing for the sheet to attach to.
+    - **Procedural Paper is off** on a mesh-less actor, which is the "draw nothing" setting.
+    - **You used an Ink Page Stack.** A stack always builds its own pile of sheets, one per
+      page, so the inherited **Procedural Paper** toggle is grayed out and does nothing.
+
+    The Output Log carries a `Verbose` message from `LogInkwell` naming the actor whenever a
+    display has a document but no mesh to draw onto.
+  </Accordion>
+
+  <Accordion title="The sheet is the wrong size">
+    The spawned sheet's size is entirely derived: the document's **Page Width Cm**, the
+    height from the **Page Size Pixels** aspect ratio, multiplied by the component's **Page
+    Scale**.
+
+    - **To resize one placed page**, change **Page Scale** on that component. It updates in
+      the viewport as you drag the slider, without re-baking the ink.
+    - **To resize every page of a document**, change **Page Width Cm** in the document's
+      Page Setup. Every placed display using it resizes immediately.
+    - **A4 on a component with no document** is correct and intentional: 21 × 29.7 cm stands
+      in so a freshly added component shows real paper.
+    - **Your own mesh does not resize.** Only the spawned sheet, and the Ink Page actor's
+      sheet while **Auto Size Sheet** is on, follow the document. Bind **On Page Size
+      Changed** on the display component to move or scale your own props when the page size
+      changes.
+  </Accordion>
+
+  <Accordion title="Editing the document does not change what is in the level">
+    Editing a document from the [Page Editor](/plugins/inkwell/authoring/page-editor) or the Details panel
+    re-bakes and re-sizes every placed page in every editor world that shows it, so this
+    should be immediate.
+
+    - **Preview In Editor is off** on that component (advanced display). That is the switch
+      for level-viewport baking; turn it back on.
+    - **You are in PIE, or in a packaged build.** Displays do not watch their document.
+      After changing a document at runtime, call **Refresh** on each component, widget, or
+      actor currently showing it: the mutation invalidates the cached bake, but the material
+      already applied keeps the texture it was handed. See
+      [Runtime documents](/plugins/inkwell/guides/runtime-documents).
+    - **You edited the Blueprint's component default while a placed instance overrides it.**
+      Standard Blueprint behavior — check the placed actor's own Details panel.
+    - **The bake failed during editor startup.** A map opened by a startup script can
+      register before the Slate renderer is usable. Inkwell retries with backoff and logs a
+      warning if it gives up; touching the actor or reopening the map fixes it.
+  </Accordion>
+</AccordionGroup>
+
+## Next
 
 <CardGroup cols={3}>
-  <Card title="No interaction system yet" icon="bolt">
-    Add **Ink Page Interactor** to your pawn (optionally with an **Ink Page Reader** to
-    tune the reading pose). Pages become readable out of the box.
+  <Card title="Ink Page Display" icon="note-sticky" href="/plugins/inkwell/components/page-display">
+    Every property, function, and event on the component this guide is built around.
   </Card>
-  <Card title="You have your own interactor" icon="crosshairs">
-    Keep it. When your trace or overlap finds a readable actor, drive an **Ink Page
-    Reader** directly — `Begin Reading`, `Next Page` / `Previous Page`, `End Reading`.
+  <Card title="Ink Page Reader" icon="book-open-reader" href="/plugins/inkwell/components/reader">
+    The reading pose, the blend, and the movement and look locks in full.
   </Card>
-  <Card title="You only want the paper rendering" icon="scroll">
-    Use **Ink Page Display** / **Ink Page Stack** alone and call `Set Page Index` from
-    anything — a trigger, a cutscene, a widget button.
+  <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+    Write pages from gameplay: generated notes, journals that grow, documents built in play.
   </Card>
 </CardGroup>
-
-All tiers consume the same [Ink Page Document](/plugins/inkwell/authoring/documents) asset — author once,
-display anywhere.
-
-### Tier 1 — no interaction system yet
-
-Add the [Ink Page Interactor](/plugins/inkwell/components/interactor) component to your pawn. At Begin
-Play it finds an [Ink Page Reader](/plugins/inkwell/components/reader) on the owner — or creates one
-automatically — then line-traces from the player's view for any actor carrying an Ink
-Page Display component (stacks count: [Ink Page Stack](/plugins/inkwell/components/page-stack) *is a*
-Display), raises `On Focus Changed` for your "Read" prompt, and drives the reader.
-
-With **Enable Default Input** on (the default), it even binds demo keys, so a fresh
-project is readable with a single component:
-
-| Key | Action |
-|---|---|
-| **E** | Read the focused page / close the current one |
-| **Q** | Close |
-| **Left arrow** / **mouse wheel down** | Previous page |
-| **Right arrow** / **mouse wheel up** | Next page |
-
-<Tip>
-Add an Ink Page Reader to the pawn yourself if you want to tune the reading pose
-(distance, offset, blend time) — the interactor will find and use it instead of creating
-a default one.
-</Tip>
-
-The interactor's tunables:
-
-| Property | Type | Default | What it does |
-|---|---|---|---|
-| Interaction Distance (`InteractionDistance`) | Float | 300.0 cm | How far away a page can be and still be picked up by the focus trace. |
-| Trace Channel (`TraceChannel`) | Collision Channel | Visibility | Channel the focus trace runs on. Visibility suits most projects. |
-| Focus Check Interval (`FocusCheckInterval`) | Float | 0.1 s | Seconds between focus traces. 0 traces every tick; the default is plenty for a reticle prompt. |
-| Draw Debug Trace (`bDrawDebugTrace`) | Bool | false | Draws each focus trace: green when it hits a readable page, red otherwise, with a small ring at the impact point. No effect in Shipping or Test builds. |
-| Enable Default Input (`bEnableDefaultInput`) | Bool | true | Binds the demo keys above on the owning pawn. Turn off when integrating your own input. |
-
-<Note>
-The interactor never consumes or alters movement/look input — the only input it touches
-are its own demo key bindings, and those go away entirely with **Enable Default Input**
-off. (The input *locks* while reading belong to the reader — see below.)
-</Note>
-
-### Tier 2 — you have your own interactor
-
-Skip the Inkwell interactor entirely and drive the reader yourself. The
-[Ink Page Reader](/plugins/inkwell/components/reader) holds **no input handling whatsoever** — it is a
-pure "snap into view" service on your pawn, character, or controller:
-
-- **Begin Reading** (`BeginReading(Page)`) / **Begin Reading Actor**
-  (`BeginReadingActor(PageActor)`) — smoothly floats the page's actor up in front of the
-  camera (physics off, collision off, glued to the view while **Follow Camera** is set).
-  Returns false if the page is invalid or something is already being read.
-- **End Reading** (`EndReading`) — blends the page back to exactly where it was lying and
-  restores physics and collision.
-- **Next Page** / **Previous Page** — forward to the page being read; return false when
-  not reading (or already at the first/last page).
-- **Is Reading**, **Get Current Page** — state queries.
-- **On Reading Started** / **On Reading Ended** — events for rustle sounds, hiding the
-  crosshair, suppressing your interaction prompt.
-
-So the whole wiring with your own interaction system is:
-
-<Steps>
-  <Step title="Detect">
-    Your trace or overlap finds an actor carrying an Ink Page Display (or Stack)
-    component.
-  </Step>
-  <Step title="Read">
-    On interact, call **Begin Reading Actor** on your pawn's Ink Page Reader (it finds
-    the display component on the actor for you), or **Begin Reading** with the component
-    directly.
-  </Step>
-  <Step title="Flip">
-    Route your page-flip inputs to the reader's **Next Page** / **Previous Page**.
-  </Step>
-  <Step title="Close">
-    On your close input, call **End Reading**.
-  </Step>
-</Steps>
-
-The reading pose and locks are all editable on the component:
-
-| Property | Type | Default | What it does |
-|---|---|---|---|
-| View Distance (`ViewDistance`) | Float | 45.0 cm | How far in front of the camera the page floats while being read. |
-| View Offset (`ViewOffset`) | Vector 2D | (0.0, -2.0) cm | Nudges the reading page sideways (X = right) and vertically (Y = up) on screen. |
-| Reading Rotation Offset (`ReadingRotationOffset`) | Rotator | Pitch 0°, Yaw 90°, Roll 90° | Extra rotation composed onto the camera rotation so the sheet's printed face points at the viewer with the text upright. The default is tuned for the Inkwell page sheet (a flat plane whose text faces up) — override it if you read from your own mesh. |
-| Blend Time (`BlendTime`) | Float | 0.3 s | How long the page takes to float up to the eyes and back. 0 snaps instantly. |
-| Follow Camera (`bFollowCamera`) | Bool | true | Keeps the page glued to the view while reading, so it stays centred as the player looks around. |
-| Lock Movement While Reading (`bLockMovementWhileReading`) | Bool | true | Move input is ignored and characters cannot jump while a page is held up. |
-| Lock Look While Reading (`bLockLookWhileReading`) | Bool | true | Look input is ignored, so the camera cannot rotate while a page is being inspected. |
-
-<Note>
-The two input locks are independent toggles, and both release **the moment End Reading is
-called** — not when the page finishes floating back down.
-</Note>
-
-A hybrid is also fine: keep the Inkwell interactor for its trace and focus events, turn
-off **Enable Default Input**, and call its BlueprintCallable functions — `Interact`
-(toggle open/close), `Stop Reading`, `Next Page`, `Previous Page` — from your own
-bindings.
-
-#### Worked example: an interactable base class
-
-The most common shape for an existing Blueprint interaction system is a base class —
-call it `BP_InteractableActor` — that every interactable inherits from, with an
-overridable event (or interface message) like **On Interact** that receives the
-interacting pawn. Inkwell slots into that system without changing any of it. You touch
-exactly two Blueprints:
-
-<Steps>
-  <Step title="Make a readable child of your interactable class">
-    Create `BP_ReadableNote` as a child of your `BP_InteractableActor`. Add an
-    **Ink Page Display** component (or an **Ink Page Stack** for a multi-page pile) and
-    assign its **Document**. That is the entire world-side setup — the page renders on
-    the actor's mesh with a live preview in the editor viewport, and your base class's
-    collision, highlighting, and focus logic keep working untouched, because Inkwell
-    added a component rather than replacing anything.
-  </Step>
-  <Step title="Put an Ink Page Reader on your player pawn">
-    Add the **Ink Page Reader** component to the pawn (or player controller). It does
-    nothing until called and binds no input. Do <b>not</b> add an Ink Page Interactor —
-    your system already does its job.
-  </Step>
-  <Step title="Override On Interact in the readable child">
-    In `BP_ReadableNote`, override your base class's interact event. The whole
-    implementation is a toggle:
-
-    1. From the interacting pawn (your event's instigator parameter), **Get Component
-       by Class → Ink Page Reader**.
-    2. Branch on the reader's **Is Reading**:
-       - **True** → call **End Reading** (so the same interact key closes the page).
-       - **False** → call **Begin Reading Actor** with **Self**. It finds the display
-         component on the actor for you and returns false if it could not start.
-  </Step>
-  <Step title="Route page turns through your input layer">
-    Wherever your pawn handles input, gate three bindings on the reader's
-    **Is Reading**: your next/previous inputs call the reader's **Next Page** /
-    **Previous Page**, and a dedicated close input (if you want one besides the interact
-    toggle) calls **End Reading**.
-  </Step>
-  <Step title="Let the reader's events drive your UI">
-    Bind **On Reading Started** on the reader to hide your interaction prompt,
-    crosshair, or outline highlight, and **On Reading Ended** to restore them — the same
-    hooks described in [Suppressing prompts](#suppressing-prompts-and-reacting-to-reading).
-    Movement and camera locks need no wiring at all: the reader applies and releases
-    both automatically.
-  </Step>
-</Steps>
-
-Because the readable is still a `BP_InteractableActor`, everything else your system does
-with interactables — focus prompts, save flags, quest hooks — applies to pages for free.
-If your interaction trace should hit the loose sheets of a stack rather than the prop's
-own collision, match the stack's **Sheet Trace Channel** to your trace channel (see
-[the note below](#wiring-press-e-to-read-with-enhanced-input) on trace channels).
-
-### Tier 3 — rendering only
-
-Use [Ink Page Display](/plugins/inkwell/components/page-display) or
-[Ink Page Stack](/plugins/inkwell/components/page-stack) on your own actor, or place the ready-made
-[Ink Page](/plugins/inkwell/components/page-actor) actor, and drive pages from anything:
-
-| You want | Use | Effort |
-|---|---|---|
-| A readable page in the world, no custom prop | **Ink Page** actor (`AInkPageActor`) | Drag into level, set Document |
-| A page printed on *your* prop or mesh | **Ink Page Display** (`UInkPageDisplayComponent`) | Add component, set Document + target mesh |
-| A page read on screen (UI) | **Ink Page** widget (`UInkPageWidget`) | Drop into any UMG widget |
-
-Call `Set Page Index` / `Next Page` / `Previous Page` from a trigger volume, a cutscene,
-a widget button — whatever your game already has.
-
-## Wiring "press E to read" with Enhanced Input
-
-Inkwell doesn't ship an interaction *system* — every game already has one. The plugin
-does ship four ready-made Enhanced Input action assets under
-`/Inkwell/Examples/Input/` (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`,
-`IA_PutBack`), and the [demo project](/plugins/inkwell/guides/examples#the-demo-project) shows exactly
-this pattern on a first-person character. To wire it in your own pawn:
-
-<Steps>
-  <Step title="Add the components">
-    Add an **Ink Page Interactor** to your pawn and untick **Enable Default Input** so
-    the hard-coded demo keys stay out of your way.
-  </Step>
-  <Step title="Set up the input actions">
-    Use the shipped example actions from `/Inkwell/Examples/Input/` (or your own input
-    actions) and add key mappings for them to your project's Input Mapping Context —
-    the demo project maps all four in its `IMC_Default`.
-  </Step>
-  <Step title="Bind in the pawn Blueprint">
-    In the pawn's Event Graph, add Enhanced Input events for the actions and call the
-    interactor's functions from them:
-
-    | Input action | Call on the interactor |
-    |---|---|
-    | `IA_Interact` | **Interact** — opens the focused page, or closes the one being read |
-    | `IA_NextPage` | **Next Page** |
-    | `IA_PreviousPage` | **Previous Page** |
-    | `IA_PutBack` | **Stop Reading** — puts the page being read back down |
-  </Step>
-  <Step title="Hook up your prompt">
-    Bind **On Focus Changed** to show or hide your "Press E to read" prompt (see the next
-    section).
-  </Step>
-</Steps>
-
-Prefer to skip the interactor and keep your own trace? Bind the same input actions to the
-**Ink Page Reader**'s `Begin Reading Actor` / `Next Page` / `Previous Page` /
-`End Reading` instead — the tier 2 wiring above.
-
-<Note>
-**Trace channels and page stacks.** The interactor traces on the **Visibility** channel
-by default, and Ink Page Stack sheets answer traces on exactly one channel — the stack's
-**Sheet Trace Channel**, also Visibility by default — so the two match out of the box. If
-your project uses a custom interaction trace channel, set both to the same channel.
-Stack sheets have query-only collision: they never block or bump the player character,
-physics, or the camera, and they never affect the navmesh. Setting the stack's
-**Sheets Block Traces** to false removes their collision entirely.
-</Note>
-
-## Suppressing prompts and reacting to reading
-
-Both components broadcast events designed for prompt/HUD logic:
-
-- **On Focus Changed** (`OnFocusChanged`, interactor) — fired when the page under the
-  player's view changes. **New Focus** is the Ink Page Display now being looked at, or
-  null when focus was lost — *including when reading begins*, so a prompt bound to this
-  event disappears automatically the moment the page comes up. (`Get Focused Page` is
-  likewise always null while reading.)
-- **On Reading Started** / **On Reading Ended** (`OnReadingStarted` / `OnReadingEnded`,
-  reader) — fired when a page starts being read and when it is put back down. Hide your
-  crosshair, show a "close" prompt, play a paper rustle on start; restore the HUD on end.
-  The **Page** parameter is the display component being read (it can be None if the page
-  actor was destroyed mid-read).
-
-A typical prompt widget:
-
-1. On construct, get the pawn's interactor and reader.
-2. Bind **On Focus Changed** — show the prompt when New Focus is valid, hide it when
-   null.
-3. Bind **On Reading Started** — hide the read prompt (already null-focused anyway) and
-   optionally show "Q — put back / arrows — turn pages".
-4. Bind **On Reading Ended** — restore the idle HUD.
-
-The shipped `/Inkwell/Examples/UI/WBP_InkwellReadPrompt` widget gets the same result the
-simplest way possible: on Tick it finds the pawn's interactor and reader and polls
-**Get Focused Page** / **Is Reading** to drive the prompt. Either style works — the event
-bindings above just avoid the per-tick work (see the
-[example content tour](/plugins/inkwell/guides/examples)).
-
-For page-flip feedback, **On Page Changed** (`OnPageChanged`, on the display component)
-fires with `(New Page Index, Page Count)` every time the shown page changes — bind it to
-update a "page 2 / 3" indicator or play a page-turn sound from your audio system.
-`Is On First Page` / `Is On Last Page` are handy for greying out flip prompts.
-
-The **Ink Page** actor additionally exposes BlueprintImplementableEvent hooks —
-**On Interacted**, **On Focus Changed**, **On Page Changed** — plus matching
-`Notify Interacted` / `Notify Focus Changed` functions for your interaction code to call,
-so a Blueprint subclass can respond to being read without touching C++.
-
-## Screen reading (UMG)
-
-To read a note in a full-screen UI instead of on a mesh: open a UMG widget containing an
-[Ink Page widget](/plugins/inkwell/components/page-widget), call its `Set Document` with the document from
-the actor (e.g. the Ink Page actor's `Get Document`), and drive `Next Page` /
-`Previous Page` from your UI input. The widget builds the page with exactly the same code
-that bakes pages onto meshes, so an on-screen page and an in-world page look identical.
-
-## Multi-sheet props (note stacks, books)
-
-For a pile of sheets each showing a different page, [Ink Page Stack](/plugins/inkwell/components/page-stack)
-does it for you. To build something custom instead, add one mesh per sheet and call
-**Apply Page To Mesh** (from the Ink Page Render Library) per sheet with ascending page
-indices. The bake is cached per world, so twenty sheets of the same document cost one
-bake per distinct page.
-
-For a rigged book, feed **Get Page Ink Texture** into your book's page material directly —
-any material that samples the ink texture (with a linear sampler) and multiplies it over
-paper will match the stock look. Copy `M_PageInk`'s node layout as a starting point. See
-[Rendering](/plugins/inkwell/reference/rendering) for the material parameters.
-
-## Save games
-
-A document is static authored content; the only runtime state your save system needs is
-*which page the player was on* (`Get Current Page Index` on the display component) — and
-only if you care. Reference documents by soft object pointer
-(`TSoftObjectPtr<UInkPageDocument>`) in your save data.
-
-<Tip>
-Everything visual — page ink material, sheet mesh, default paper and font — is
-repointable in **Project Settings → Plugins → Inkwell**. See
-[Settings](/plugins/inkwell/reference/settings).
-</Tip>

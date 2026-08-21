@@ -1,184 +1,395 @@
 ---
-title: "Troubleshooting & FAQ"
-description: "Blank pages, traces that miss, locks that hold, and other things worth knowing before you file a bug"
+title: "FAQ"
+description: "Straight answers about engine versions, licensing, Blueprint, packaging, multiplayer, VR, performance, and the things that most often look broken"
 icon: "circle-question"
 ---
 
-## Rendering
+Questions people actually ask before and after buying Inkwell. Each answer links to the
+page that covers it properly.
 
-### Page blank at startup
+## Before you buy
 
-**Symptom:** a page actor in an open level shows blank paper (or the checkerboard
-material) right after the editor starts, and fixes itself a little later — or after you
-touch the component.
+<AccordionGroup>
 
-During editor startup, a page component can register before the editor's Slate renderer
-is usable, so the very first preview bake fails. And because dynamic material instances
-are never saved into the level, there is no baked material waiting on disk — the sheet
-would stay unbaked until something refreshed it.
+<Accordion title="What Unreal versions does it support?">
+**Unreal Engine 5.7.** That is what Inkwell is built and tested against, and what the Fab
+listing installs.
 
-Inkwell handles this itself: failed preview bakes are retried automatically with
-exponential backoff (0.25 s up to 32 s, 8 attempts, roughly 60 s in total). In the normal
-case the page simply pops in a moment after startup, with no action needed.
+Nothing in the plugin uses experimental or preview engine APIs — the runtime module depends
+only on `Core`, `CoreUObject`, `Engine`, `InputCore`, `Slate`, `SlateCore`, `UMG`,
+`DeveloperSettings`, plus private `RenderCore` and `RHI`. Dropping the source into a nearby
+5.x project's `Plugins/` folder will often compile, but 5.7 is the version that is
+supported and the only one changes are verified against.
 
-If the bake *keeps* failing past the retry window, you'll get a `LogInkwell` warning:
+See [Installation](/plugins/inkwell/installation).
+</Accordion>
 
-```
-InkPageDisplay on '...': editor preview bake kept failing after startup;
-the sheet will refresh next time it is edited or the map is reopened.
-```
+<Accordion title="Do I need C++? Does my project have to be a C++ project?">
+**You never write C++.** Every component, function, property, event and struct is
+Blueprint-exposed — the whole surface is on the
+[Blueprint API reference](/plugins/inkwell/reference/blueprint-api), and the demo content is wired in
+Blueprint only.
 
-At that point, editing any property on the component (or reopening the map) triggers a
-fresh preview. Persistent failures usually mean rendering is genuinely unavailable — for
-example running with the null RHI — or the page ink material is missing (see the next
-entry).
+The *plugin* contains C++, which matters in exactly one place: how you install it.
 
-### Every page renders wrong, and the log mentions a settings entry
+- **Installed to the engine from Fab** — it arrives with prebuilt binaries for that engine
+  version, and a Blueprint-only project can enable and use it with no toolchain at all.
+- **Vendored into your project's `Plugins/` folder as source** — the plugin then has to be
+  compiled, which makes yours a code project and requires a C++ toolchain. This is how the
+  demo repository ships it, and it is the right choice for teams that keep plugins in
+  source control.
 
-If the **page ink material** (or another configured asset) is unset or cannot be loaded,
-Inkwell logs one warning per session naming the exact setting:
+Either way, you author pages in a window and wire them with Blueprint nodes.
+</Accordion>
 
-```
-Inkwell: page ink material could not be loaded from '...'. Fix 'Project Settings >
-Plugins > Inkwell > Page Ink Material' (the plugin's content may not be installed
-in this project).
-```
+<Accordion title="Can I sell a game made with this?">
+Yes. Copies obtained through Fab are governed by the Fab Content Licensing Agreement, which
+grants the purchaser the right to use, modify and distribute the plugin **as part of their
+own projects and products**, commercial ones included. What you may not do is redistribute
+Inkwell itself as a plugin or asset.
 
-Check **Project Settings → Plugins → Inkwell** and confirm the referenced asset exists.
-The defaults point into `/Inkwell/...`, so this warning most often means the plugin's
-Content folder is missing from the install. When the material cannot be resolved,
-displays fall back to the mesh's existing material so the failure is visible — the ink
-parameters just do nothing on it. See [Project Settings](/plugins/inkwell/reference/settings).
+The five bundled font families — Courier Prime, Crimson Text, Kalam, Patrick Hand and Great
+Vibes — are all **SIL Open Font License 1.1**, which permits bundling and redistribution in
+commercial products. The full license texts ship inside the plugin at
+`Plugins/Inkwell/Resources/Licenses/`, and the notices are in
+`Plugins/Inkwell/THIRD_PARTY_NOTICES.md`. Keep those files in your distribution and the
+OFL's conditions are met.
 
-### Page content is garbled on my own mesh
+If you import your own licensed fonts with [Import Font Family](/plugins/inkwell/authoring/fonts), their
+licenses are your responsibility, not Inkwell's.
+</Accordion>
 
-Page meshes must have **clean 0–1 UVs across the page face** — the baked ink is sampled
-across the full 0–1 UV range. Most atlas-mapped prop meshes garble page content in a way
-that looks like a bake failure but is not. The bundled `SM_PageSheet` (a 100 cm plane) is
-mapped correctly; use it, or unwrap your own mesh so the page face spans 0–1.
+<Accordion title="Does it work with the interaction system I already have?">
+Yes, and that is the intended path for most projects.
 
-### Colours look washed out in a custom page material
+The bundled [Ink Page Interactor](/plugins/inkwell/components/interactor) is a self-contained demo so pages
+are readable out of the box. If you already have an interaction system — the usual base
+`InteractableActor` Blueprint everything inherits from — skip the interactor entirely and
+call [Ink Page Reader](/plugins/inkwell/components/reader) directly:
 
-The ink layer is baked in **linear space** (the render target is created with SRGB off
-and gamma 1.0, and the widget renderer runs without gamma correction). Sample the ink
-texture with a **LinearColor** sampler in your material — a default sRGB sampler washes
-every colour out by exactly one gamma curve. See
-[Rendering Pipeline](/plugins/inkwell/reference/rendering#the-ink-render-target).
+- **Begin Reading Actor** (Actor) → floats that actor's page into view.
+- **End Reading** → puts it back.
+- **Next Page** / **Previous Page** → turn the page being read.
 
-### I changed a document at runtime and the page didn't update
+Nothing about Inkwell assumes a trace, a key, a channel, or a pawn class. The
+[Ink Page](/plugins/inkwell/components/page-actor) actor even exposes **Notify Interacted** and
+**Notify Focus Changed** so your system can drive its **On Interacted** and
+**On Focus Changed** events without Inkwell touching input at all.
 
-Mutate documents through their Blueprint API — **Add Page**, **Remove Page**, **Set
-Page**, **Set Page Markup** — which invalidates the world's bake cache for you (the cache
-keys on the document's content revision). Then call **Refresh** on the displaying
-component so it re-applies. If you changed something the mutation API doesn't cover, call
-**Bump Revision** on the document first. See
-[Runtime Documents](/plugins/inkwell/guides/runtime-documents).
+Full walkthrough: [Integration](/plugins/inkwell/guides/integration).
+</Accordion>
 
-## Interaction
+</AccordionGroup>
 
-### My page isn't readable — the trace never finds it
+## Using it in a project
 
-The bundled [Ink Page Interactor](/plugins/inkwell/components/interactor) line-traces from the player's
-view for an actor carrying an [Ink Page Display](/plugins/inkwell/components/page-display) component
-(an [Ink Page Stack](/plugins/inkwell/components/page-stack) counts — Stack *is a* Display). Work down
-this list:
+<AccordionGroup>
 
-1. **Distance.** The focus trace reaches **Interaction Distance** — 300 cm by default.
-   Get closer, or raise it.
-2. **Channels must match.** The interactor traces on its **Trace Channel** (default
-   **Visibility**). Whatever it hits must block that channel:
-   - Stack sheets block exactly one channel, the stack's **Sheet Trace Channel**
-     (default **Visibility** — matching the interactor out of the box). If you changed
-     one, change the other.
-   - The stack's **Sheets Block Traces** must be on (default on); off means the sheets
-     have no collision at all and every trace passes through the pile.
-   - For a display on your own mesh, that mesh's collision must block the trace channel —
-     Inkwell does not touch collision on meshes it doesn't own.
-3. **Something in the way?** The trace hits the *first* blocking thing on the channel. An
-   invisible blocking volume, or glass that blocks Visibility, will eat the trace.
-4. **Turn on Draw Debug Trace** on the interactor: each focus trace draws in the world —
-   green when it hits a readable page, red otherwise, with a small ring at the impact
-   point. (Debug drawing has no effect in Shipping or Test builds.)
+<Accordion title="Can I change page text at runtime?">
+Yes. Documents are mutable at runtime through Blueprint:
 
-If focus works but nothing happens on your key press, remember the interactor's demo keys
-(E interacts, Q closes, arrows / mouse wheel flip pages) only bind while **Enable Default
-Input** is on. The shipped demo turns that off and binds Enhanced Input actions in
-Blueprint instead — if you copied that pattern, check your bindings call **Interact** /
-**Stop Reading** / **Next Page** / **Previous Page** on the component.
+- **Set Page Markup** (Page Index, Markup) — rewrites the page's first text box.
+- **Set Layer Markup** (Page Index, Layer Index, Markup) — rewrites one specific text layer.
+- **Add Page**, **Remove Page**, **Set Page** — restructure the document.
+- **Set Page Layers**, **Add Page Layer**, **Remove Page Layer**, **Move Page Layer** — edit
+  the stack.
 
-### What collision do stack sheets have? Will they bump my player?
+Every one of those invalidates the bake cache for you. Then call **Refresh** on the display
+component so it re-bakes and re-applies. If you changed something none of those cover, call
+**Bump Revision** on the document first.
 
-No. Sheets are focus targets, not obstacles:
+Two things to know. **Get Page** returns a *copy* — push it back with **Set Page**. And
+mutating a document asset changes it for every actor in the world showing it, so build a
+runtime copy (`Duplicate Object` into the transient package, or a fresh
+`UInkPageDocument`) when you want one note to differ from the others.
 
-- Query-only collision, object type WorldDynamic — never physical blocking.
-- They **ignore every channel** and **block exactly one**: the stack's **Sheet Trace
-  Channel** (default Visibility). Pawn movement sweeps, physics impulses and camera
-  probes all pass straight through the pile.
-- No overlap events are generated, and sheets **never affect navmesh**.
-- Turning **Sheets Block Traces** off removes collision entirely (No Collision).
+Full recipes: [Runtime Documents](/plugins/inkwell/guides/runtime-documents).
+</Accordion>
 
-So a journal on a desk cannot shove the player, trip the camera boom, or carve a hole in
-navigation — it can only answer the interaction trace.
+<Accordion title="How many pages can a document have? How many documents can I have?">
+There is no hard limit on either. `Pages` is a plain array and documents are ordinary Data
+Assets, so the real limits are memory and taste.
 
-### The player can't move or look around while reading — is that a bug?
+What actually costs something:
 
-That's the [Ink Page Reader](/plugins/inkwell/components/reader)'s input locks, and both default **on**:
+- **Baked pages.** Pages are baked lazily, one at a time, the first time something asks for
+  one. An unread page costs only the bytes of its authored text. A page that *has* been read
+  holds an ink render target in the world's cache — about 5.5 MB at the default
+  1024 × 1400. A 20-page journal read cover to cover is therefore around 110 MB of cache
+  until the world ends. That number, not the page count, is what to plan against; see
+  [page size and what it costs](/plugins/inkwell/reference/rendering#page-size-and-what-it-costs).
+- **Sheet meshes on a stack.** [Ink Page Stack](/plugins/inkwell/components/page-stack) never creates more
+  than **Max Visible Sheets** meshes (16 by default). A 200-page book shows a sliding window
+  of sheets and re-bakes the hidden bottom one as you read, so the mesh count is constant.
+- **Layers and strokes.** Each visible layer is one slot in the page's widget tree, and each
+  stroke is a polyline plus round dabs at its joins. Thousands of strokes on one page make
+  its *bake* slower; they cost nothing afterwards.
 
-| Property | Default | What it does |
-|---|---|---|
-| **Lock Movement While Reading** (`bLockMovementWhileReading`) | `true` | Move input is ignored and characters cannot jump while a page is held up. |
-| **Lock Look While Reading** (`bLockLookWhileReading`) | `true` | Look input is ignored — the camera cannot rotate while a page is held up. |
+Unloaded documents cost nothing at all. A game with a thousand notes scattered across a
+world is fine as long as the player does not read all thousand in one session.
+</Accordion>
 
-They are independent toggles: turn either off on the reader component if your game wants
-the player walking or looking around mid-read. Both release **the moment End Reading is
-called** — not when the page finishes floating back down — so control returns instantly
-on close.
+<Accordion title="Does it replicate? Can I use it in multiplayer?">
+**Nothing in Inkwell is replicated.** No property is marked `Replicated`, and no RPCs
+exist. Page state is local, which is the right default — a baked page is client-side
+presentation, and replicating render targets would be absurd.
 
-## Content & the demo project
+For a shared world, replicate your own state and drive Inkwell from it on each machine:
 
-### I can't find the Inkwell content (examples, fonts, materials)
+- Replicate the *page index* (or the document reference) on your own actor and call
+  **Set Page Index** / **Set Document** on the Ink Page Display from a `RepNotify`. Every
+  client bakes locally and they stay in sync.
+- **Do not** let two players read the same placed page actor. [Ink Page
+  Reader](/plugins/inkwell/components/reader) physically moves the page actor's transform, disables its
+  collision and stops its physics, all locally. On a replicated actor the server will fight
+  it, and everyone else watches the note fly across the room. Give each player a
+  client-only page to read, or read from a
+  [UMG page widget](/plugins/inkwell/components/page-widget) instead, which touches no world state at all.
+- The reader's movement and look locks call `SetIgnoreMoveInput` / `SetIgnoreLookInput` on
+  the local controller, so they behave correctly for the reading player only — which is
+  what you want.
+</Accordion>
 
-Plugin content is hidden by default. In the Content Browser, open **Settings** (or the
-view options) and enable **Show Plugin Content**. Inkwell's content then appears under
-**Plugins → Inkwell Content**:
+<Accordion title="Does it work in VR?">
+Yes, with one thing to wire yourself.
 
-- `/Inkwell/Examples/` — the example content: `Blueprints/BP_InkwellJournalStack` (a
-  static-mesh actor with an Ink Page Stack wired to the sample journal),
-  `DA_InkwellJournal` (a multi-page example document), `UI/WBP_InkwellReadPrompt` (a
-  "Press E to read" prompt widget listening to the focus/reading events), and
-  `Input/IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack` (Enhanced Input
-  actions the demo binds).
-- `/Inkwell/Demo/DA_InkwellSample` — a sample document.
-- `/Inkwell/Fonts/` — the five bundled font families.
-- `/Inkwell/Materials/` — `M_PageInk`, `MI_PageInk`, `M_PageComposite_Preview`.
-- `/Inkwell/Meshes/SM_PageSheet` — the 100 cm page sheet plane.
-- `/Inkwell/Textures/` — `T_PaperPlain`, `T_InkNone`.
+The [Ink Page Reader](/plugins/inkwell/components/reader) places the page from the player's view point —
+for a possessed pawn it reads through the controller's camera manager, which in VR is the
+tracked HMD view. So **Begin Reading** floats the page in front of the headset and, with
+**Follow Camera** on, keeps it there as the player looks around. Tune **View Distance**
+(45 cm by default, which is close for VR) and **View Offset** to taste, and turn **Lock Look
+While Reading** *off* — freezing the view is the wrong behavior in a headset, and can be
+uncomfortable.
 
-See [Examples](/plugins/inkwell/guides/examples) for a tour.
+The part to wire yourself is picking the page. The bundled
+[Ink Page Interactor](/plugins/inkwell/components/interactor) traces from the view point, which makes it
+gaze-based. For motion controllers, skip it and call **Begin Reading Actor** from your own
+controller trace or grab event.
 
-### The demo project won't open, or every asset fails to load
+Pages in the world are ordinary lit meshes, so they work in VR with no special handling. A
+full-screen UMG page does not — put the [Ink Page widget](/plugins/inkwell/components/page-widget) in a
+world-space Widget Component instead.
+</Accordion>
 
-The demo project (`github.com/tyguymedia/Inkwell`) stores its binary assets in **Git
-LFS** — `.uasset`, `.umap`, `.ubulk`, `.uexp`, plus source `.ttf`/`.otf` fonts and
-`.png`/`.jpg`/`.tga` textures. If you clone without Git LFS installed, you get tiny text
-pointer files instead of real assets, and the editor fails to load essentially
-everything. Install Git LFS, then run `git lfs pull` in the clone (a fresh clone with LFS
-installed fetches them automatically).
+<Accordion title="What about localization?">
+Page text is a `String` of rich-text markup on the asset, not an `FText`, so it does not
+flow through Unreal's localization pipeline automatically. Two approaches work:
 
-Two more pitfalls:
+1. **One document per language.** Author `DA_Note_Letter_EN`, `DA_Note_Letter_FR`, and pick
+   between them with **Set Document** using your own culture check. This keeps the
+   authored styling, the layers and the layout intact per language, which matters when a
+   translation is twice as long as the original.
+2. **Drive the text at runtime.** Keep the text in a String Table or an `FText` you format,
+   and push it with **Set Page Markup**. This is the lighter option, and the right one for
+   generated text — a player's name, a quest log, a date.
 
-- **It's a C++ project.** Open it and let it compile, or use pre-built binaries. If the
-  editor offers to rebuild modules, say yes.
-- **The repository is not the product.** Fab ships only the `Plugins/Inkwell` folder; the
-  surrounding project is a stock First Person map used to develop and verify the plugin.
-  To use Inkwell in your own game, copy `Plugins/Inkwell` into your project's `Plugins/`
-  folder — see [Installation](/plugins/inkwell/installation).
+<Warning>
+Rich-text markup treats `<` as the start of a tag. A localized string containing a literal
+`<` will not parse. Strip or escape angle brackets in text you inject with **Set Page
+Markup**, and remember that a runtime string carries no styling of its own — it renders in
+the document's Default Text Style unless you wrap it in markup yourself.
+</Warning>
 
-### How does the demo character read pages?
+Right-to-left scripts are not something Inkwell handles itself: pages go through Slate's
+rich text block with the engine's default shaping, and Inkwell adds no bidirectional
+handling of its own. Test a page in your target script before committing to it.
+</Accordion>
 
-The demo keeps the stock FirstPerson map, and its character binds the example Enhanced
-Input actions (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack`) to the
-[Ink Page Interactor](/plugins/inkwell/components/interactor) in Blueprint — with the interactor's
-**Enable Default Input** demo key bindings turned **off**. That's the recommended pattern
-to copy when wiring Inkwell into your own input setup; see
-[Integration](/plugins/inkwell/guides/integration).
+</AccordionGroup>
+
+## Packaging and performance
+
+<AccordionGroup>
+
+<Accordion title="Does it cook and package correctly?">
+Yes, and the editor-only half removes itself: `InkwellEditor` is an Editor module, so the
+Page Editor window, the asset factory, the menus and the font tools never enter a packaged
+build. Only the `Inkwell` runtime module ships.
+
+Three things are worth checking before you package:
+
+1. **Save documents from the Page Editor's Save Document button** — see the fonts entry
+   below.
+2. **Assets you repointed in settings.** If you pointed **Page Ink Material**, **Page Sheet
+   Mesh** or **Default Paper Texture** at a project asset that nothing else in the project
+   references, make sure it is included in the cook — *Additional Asset Directories to
+   Cook* is the usual route.
+3. **Turn off Enable Default Input** on any [Ink Page
+   Interactor](/plugins/inkwell/components/interactor) you shipped. Those bindings are real runtime key
+   bindings, not an editor convenience: leave it on and **E**, **Q**, the arrow keys and
+   the mouse wheel stay live in your released game.
+
+More detail: [Installation → before you package](/plugins/inkwell/installation).
+</Accordion>
+
+<Accordion title="Will my fonts survive a packaged build?">
+They will, provided you save documents the right way.
+
+Rich-text markup stores fonts as **string paths**, which the cooker cannot see. A page
+whose fonts were only named in markup would cook away and render fallback glyphs in the
+packaged game — a bug that never shows up in the editor. Inkwell handles this with the
+document's **Font References** array of hard references.
+
+That array is rebuilt by **Save Document** in the Page Editor, and by nothing else. Saving
+the asset with Ctrl+S from the Content Browser, or letting it be saved as part of a level
+save, does **not** refresh it.
+
+<Tip>
+After changing fonts on a page, click **Save Document**. It rebuilds the references from
+every text layer on every page — plus the document's effective default font, so a
+project-wide settings font gets a hard reference too — and then saves the asset.
+</Tip>
+
+Never delete or hand-edit Font References. See [Fonts](/plugins/inkwell/authoring/fonts).
+</Accordion>
+
+<Accordion title="What does it cost at runtime?">
+Almost nothing in steady state, with one spike you can control.
+
+**The spike** is the bake: composing a page into a Slate widget tree and rendering it into
+a render target, on the game thread, twice (the second draw is what makes wrapped and
+justified text land correctly). It happens **once per page, per document, per content
+revision, per world** — the result is cached and shared by everything showing that page. A
+page of text is cheap; a page carrying thousands of drawn strokes is the expensive case.
+
+If a first page turn hitches, pre-warm: call **Get Page Ink Texture** for the pages you
+know will be read, during a load screen or on Begin Play.
+
+**Steady state** is a mesh with one dynamic material instance. Ticking is minimal:
+
+| Component | Ticks? |
+|---|---|
+| [Ink Page Display](/plugins/inkwell/components/page-display) | **Never.** Tick is disabled outright. |
+| [Ink Page Stack](/plugins/inkwell/components/page-stack) | Only while sheets are moving. Tick starts disabled and stops when the pile settles. |
+| [Ink Page Reader](/plugins/inkwell/components/reader) | Only while a page is held up or blending. Starts disabled. |
+| [Ink Page Interactor](/plugins/inkwell/components/interactor) | Always, to run the focus trace — one line trace every **Focus Check Interval** (0.1 s by default, so ten per second). Raise the interval, or skip the interactor entirely, if that matters. |
+
+Memory is the thing to actually budget: see
+[page size and what it costs](/plugins/inkwell/reference/rendering#page-size-and-what-it-costs), and resist
+raising **Page Size Pixels** above what the page occupies on screen — the ink target has no
+mip chain, so oversizing costs image quality as well as bytes.
+</Accordion>
+
+</AccordionGroup>
+
+## Something looks wrong
+
+<AccordionGroup>
+
+<Accordion title="My page is blank">
+Work down this list — it is ordered by how often each one is the answer.
+
+1. **No document is assigned.** A display with no Document deliberately shows blank paper
+   rather than stale ink. Check the **Document** pin.
+2. **It is editor startup.** A component can register before the Slate renderer is usable,
+   so the first preview bake fails and the page pops in a second later. Inkwell retries
+   automatically. See
+   [editor preview](/plugins/inkwell/reference/rendering#editor-preview).
+3. **There is no mesh to draw onto.** **Procedural Paper** only spawns a sheet when the
+   actor has *no* mesh of its own and *has* a root component. With Procedural Paper off and
+   no mesh, nothing draws — the Output Log says so at Verbose:
+   *"has no mesh to draw onto — set Target Mesh, or add a mesh component to the actor."*
+4. **Apply On Begin Play is off.** Then nothing draws until you call **Refresh** yourself.
+5. **The text layer is hidden, or its opacity is 0.** Hidden layers are skipped by the bake
+   as well as the preview. Check the eye toggle in the Page Editor's Layers panel.
+6. **Ink Strength is 0** on the document. That is invisible ink, working as designed.
+7. **The page has no Text layer.** Only reachable by replacing a page's stack from script
+   with **Set Page Layers**. **Find Text Layer Index** returning -1 confirms it.
+8. **The page ink material could not be loaded.** Then displays fall back to the mesh's
+   existing material and the ink parameters do nothing on it. The Output Log carries one
+   `LogInkwell` warning naming the setting to fix. See
+   [Project Settings](/plugins/inkwell/reference/settings).
+</Accordion>
+
+<Accordion title="My text looks stretched or squashed">
+It is not the document. A Page Document has exactly one physical dimension — **Page Width
+Cm** — and derives the height from the **Page Size Pixels** aspect ratio, so the paper is
+always the same shape as the page you authored and the writing cannot come out stretched.
+**Page Scale** on the display component scales both axes together for the same reason.
+
+So the distortion is in the mesh. In order of likelihood:
+
+1. **Non-uniform scale** on the page actor or on the mesh component. The baked ink is
+   mapped across the mesh's 0–1 UVs, so a sheet scaled 2 × 1 stretches every letter on it.
+   Reset the scale and let Inkwell size the paper.
+2. **You supplied the mesh.** Inkwell never resizes a mesh you provided — an explicit
+   **Target Mesh**, or any mesh component already on the actor, is drawn onto exactly as
+   built. Size it yourself to the page's aspect ratio, or delete it and let Procedural
+   Paper spawn the sheet.
+3. **Auto Size Sheet is off** on the [Ink Page](/plugins/inkwell/components/page-actor) actor. That
+   actor owns its sheet and fits it to the page only while that toggle is on.
+4. **The mesh's UVs are not clean 0–1 across the page face.** An atlas-mapped prop mesh
+   garbles page content in a way that reads as a bake failure but is not. The bundled
+   `SM_PageSheet` is a 100 cm plane mapped correctly; use it, or unwrap your own.
+</Accordion>
+
+<Accordion title="The paper isn't showing up">
+There are two different features called "paper", and the fix depends on which one you mean.
+
+**"There is no sheet in the level at all."** That is
+**Procedural Paper** on the [Ink Page Display](/plugins/inkwell/components/page-display) component — the
+toggle that *spawns a mesh*. It stays out of your way on purpose:
+
+- It only spawns when the actor has **no mesh component of its own**. Any mesh already on
+  the actor, or an explicit **Target Mesh**, is used instead and no sheet appears.
+- It needs the actor to have a **root component** to attach to.
+- It is grayed out on an [Ink Page Stack](/plugins/inkwell/components/page-stack), which always spawns one
+  sheet per page instead.
+
+**"The sheet is there but the paper texture isn't."** That is the document's
+**Paper Mode**, which decides where the paper *image* comes from:
+
+- **Paper Mode → Texture asset** (`Texture`) with **Paper Texture** empty resolves no paper at all. Inkwell
+  flips `UsePaperTexture` to 0 and the material falls back to its flat paper color, which
+  reads as blank, evenly lit stock. Assign a texture, or switch to Generated.
+- **Paper Mode → Generated** (`Procedural`) draws the sheet from the ruling settings and
+  needs no assets whatsoever — the fastest way to lined, grid or dotted stock. See
+  [Paper](/plugins/inkwell/authoring/paper).
+- A page's **Paper Override** beats both. If one page in a document is wrong, check
+  whether it carries an override.
+- On the [Ink Page widget](/plugins/inkwell/components/page-widget), **Show Paper** must be on.
+- On a **custom page material**, the paper only appears if the material has parameters
+  matching the names under
+  [Material Parameters](/plugins/inkwell/reference/settings#material-parameters).
+</Accordion>
+
+<Accordion title="Colors look washed out in my own page material">
+The ink is baked in **linear space** — the render target is created with SRGB off and gamma
+1.0, and the widget renderer runs without gamma correction. Sample the ink texture with a
+**LinearColor** sampler. A default sRGB sampler washes every color out by exactly one gamma
+curve. See [the ink render target](/plugins/inkwell/reference/rendering#the-ink-render-target).
+</Accordion>
+
+<Accordion title="I edited the document and the page didn't change">
+In the **editor**, an edit to the asset re-bakes and re-sizes every placed page showing it,
+immediately. If that is not happening, the component's **Preview In Editor** is off.
+
+At **runtime**, mutate the document through its Blueprint API — **Set Page Markup**,
+**Add Page**, **Set Page Layers**, and the rest — which invalidates the bake cache for you,
+then call **Refresh** on the display. Two traps:
+
+- **Get Page** hands you a copy. Editing it changes nothing until you **Set Page** it back.
+- Changing something no mutator covers (writing into `Pages` from C++, say) leaves the
+  cache serving the old bake. Call **Bump Revision** first.
+
+See [Runtime Documents](/plugins/inkwell/guides/runtime-documents).
+</Accordion>
+
+</AccordionGroup>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Integration" icon="plug" href="/plugins/inkwell/guides/integration">
+    Wiring Inkwell into the interaction system your project already has.
+  </Card>
+  <Card title="Rendering pipeline" icon="gears" href="/plugins/inkwell/reference/rendering">
+    The bake, the material, the cache, and what page resolution costs.
+  </Card>
+  <Card title="Blueprint API" icon="code" href="/plugins/inkwell/reference/blueprint-api">
+    Every node, property, event and struct with real types and defaults.
+  </Card>
+  <Card title="Runtime documents" icon="file-pen" href="/plugins/inkwell/guides/runtime-documents">
+    Building and rewriting pages while the game runs.
+  </Card>
+</CardGroup>

@@ -1,119 +1,221 @@
 ---
 title: "Example content"
-description: "A tour of the example assets that ship inside the plugin, and the separate demo project on GitHub"
+description: "Every asset that ships in /Inkwell/Examples and /Inkwell/Demo, what each one demonstrates, how to open or place it, and which ones are safe to copy into your own project."
 icon: "box-open"
 ---
 
-Inkwell ships working example content *inside the plugin* — a journal prop, a sample
-multi-page document, a read-prompt widget, and a set of Enhanced Input actions. Use them
-as reference implementations to copy from, or drop them straight into a level to see the
-plugin working before you build anything of your own.
+Inkwell ships eight example assets inside the plugin: two finished
+[Ink Page Documents](/plugins/inkwell/authoring/documents), a journal prop Blueprint, four Enhanced Input
+actions, and a read-prompt widget. They exist so you can see the plugin working in a level
+within a minute of enabling it, and so you have a finished document to pull apart in the
+[Page Editor](/plugins/inkwell/authoring/page-editor).
+
+There is **no demo map inside the plugin** — a plugin cannot ship a level without dragging
+a project's worth of settings along with it. You place the example actors yourself, which
+takes about thirty seconds, or you clone the separate demo project described at the bottom
+of this page.
 
 ## Finding the content
 
-The examples live at `/Inkwell/Examples/`. In the Content Browser:
-
 <Steps>
   <Step title="Show plugin content">
-    Open the Content Browser's **Settings** menu and enable **Show Plugin Content**.
+    In the Content Browser, open the **Settings** menu and tick **Show Plugin Content**.
+    Plugin folders are hidden by default, which is the single most common reason people
+    think Inkwell shipped no examples.
   </Step>
-  <Step title="Browse to the examples">
-    In the source panel, go to **Plugins → Inkwell Content → Examples**.
+  <Step title="Browse to the folders">
+    In the source panel, go to **Plugins → Inkwell Content**. The two folders that matter
+    here are **Examples** and **Demo**; asset paths are written as `/Inkwell/Examples/...`
+    and `/Inkwell/Demo/...`.
   </Step>
 </Steps>
 
+## Everything that ships as an example
+
+| Asset | Path | Type | Demonstrates |
+|---|---|---|---|
+| `DA_InkwellSample` | `/Inkwell/Demo/` | Ink Page Document | A short two-page note: styled runs, a center-justified text box, a per-page paper override |
+| `DA_InkwellJournal` | `/Inkwell/Examples/` | Ink Page Document | A five-page journal: all five bundled font families, bold / italic / underline / strikethrough, colored ink |
+| `BP_InkwellJournalStack` | `/Inkwell/Examples/Blueprints/` | Actor Blueprint | The minimum readable prop: an actor with an Ink Page Stack pointed at the journal |
+| `IA_Interact` | `/Inkwell/Examples/Input/` | Input Action | Open the focused page / close the one being read |
+| `IA_NextPage` | `/Inkwell/Examples/Input/` | Input Action | Turn forward |
+| `IA_PreviousPage` | `/Inkwell/Examples/Input/` | Input Action | Turn back |
+| `IA_PutBack` | `/Inkwell/Examples/Input/` | Input Action | Put the page being read back down |
+| `WBP_InkwellReadPrompt` | `/Inkwell/Examples/UI/` | Widget Blueprint | A prompt and page counter driven by the Ink Page Interactor and Ink Page Reader |
+
+Everything else in the plugin's Content folder — `Fonts`, `Materials`, `Meshes`,
+`Textures` — is not example content. Those are the assets the runtime resolves through
+*Project Settings → Plugins → Inkwell*, and Inkwell needs them. See
+[Settings](/plugins/inkwell/reference/settings).
+
+## DA_InkwellSample
+
+`/Inkwell/Demo/DA_InkwellSample` — a two-page note, the shortest complete document in the
+plugin. Double-click it to open the [Page Editor](/plugins/inkwell/authoring/page-editor).
+
+- **Page 1** is a note in two voices: a Great Vibes heading (`for you`, 64 pt, in blue ink)
+  over a Kalam handwritten body at 30 pt in the same blue.
+- **Page 2** is center-justified, and its italic Crimson Text line says so: justification
+  belongs to the text box it is set on, and the paper to the page — neither is a
+  document-wide setting. It is the page to read if you are wondering what **Paper override
+  (this page)**, in the Page Editor's **Paper & Ink** section, is for.
+
+Both pages use the plugin's plain paper texture and the default 1024 × 1400 page at 21 cm
+wide, so they render as A4-shaped sheets in the level.
+
+**To place it:** open the **Place Actors** panel, search for **Ink Page**, and drag the
+actor into the level. In its Details panel, set the Ink Page Display component's
+**Document** to `DA_InkwellSample`. The sheet sizes and bakes itself immediately, in the
+viewport, without pressing Play.
+
+<Frame caption="The sample note placed in a level as an Ink Page actor.">
+  <img src="/images/inkwell/note-in-level.png" alt="The Inkwell sample note lying in a level" />
+</Frame>
+
+## DA_InkwellJournal
+
+`/Inkwell/Examples/DA_InkwellJournal` — the five-page journal the stack Blueprint displays,
+and the best single reference for what an authored document can look like. Each page
+deliberately uses a different hand so you can see all five bundled font families and every
+text style in one document:
+
+1. **Title page** — "The Keeper's Journal" in Great Vibes at 68 pt, an italic Crimson Text
+   subtitle, and a small Patrick Hand line telling the player to turn pages with the arrow
+   keys.
+2. **A handwritten entry** — Kalam, with a bold heading, body text at 30 pt, and a blue
+   margin note in a smaller size.
+3. **A typed log** — Courier Prime, showing a **strikethrough** run struck through one line
+   of the inventory and a red correction beside it.
+4. **A letter** — Crimson Text, mixing regular, italic and bold runs inside single
+   paragraphs, and closing on a bold, underlined line in red — the one Kalam line on the
+   page.
+5. **A closing page** — "finis" in Great Vibes over an italic sign-off.
+
+Open it and click into any run: the toolbar shows the exact font, typeface, size, and color
+that run carries, which is the quickest way to learn how the
+[markup](/plugins/inkwell/guides/runtime-documents#the-markup-format) is put together.
+
+## BP_InkwellJournalStack
+
+`/Inkwell/Examples/Blueprints/BP_InkwellJournalStack` — an Actor Blueprint with exactly two
+things in it: a default scene root, and an **Ink Page Stack** component named `PageStack`
+with its **Document** set to `DA_InkwellJournal`. There is no Event Graph logic at all.
+That is the point: a readable multi-page prop is a component and a document reference.
+
+**To place it:** drag the Blueprint from the Content Browser into the level. The journal
+appears as a physical pile of sheets, one mesh per page, the current page on top and the
+rest squared up underneath. With an [Ink Page Interactor](/plugins/inkwell/components/interactor) on your
+pawn — or your own interaction system calling
+[Begin Reading Actor](/plugins/inkwell/guides/integration) — it is immediately readable.
+
+<Frame caption="BP_InkwellJournalStack in a level: one sheet mesh per page, current page on top.">
+  <img src="/images/inkwell/journal-stack-in-level.png" alt="The Inkwell journal page stack lying in a level" />
+</Frame>
+
+It is also a live playground for the stack's look. Select the placed actor and drag **Sheet
+Gap**, **Fan Splay**, **Fan Angle**, **Stack Yaw**, or **Page Turn Duration**: the pile
+re-lays itself in the editor viewport as you drag, no PIE needed. See
+[Ink Page Stack](/plugins/inkwell/components/page-stack) for what each property does.
+
+## The Enhanced Input actions
+
+`/Inkwell/Examples/Input/` holds four Input Action assets: `IA_Interact`, `IA_NextPage`,
+`IA_PreviousPage`, and `IA_PutBack`. All four are **Digital (bool)** actions with a single
+**Pressed** trigger — the plainest possible button actions.
+
 <Note>
-Because this content lives inside the plugin, it cooks automatically whenever the plugin
-is enabled — no extra "additional asset directories to cook" entries needed.
+**No Input Mapping Context ships with them, and no keys are bound.** An IMC is a
+project-level decision, and shipping one would either collide with yours or quietly do
+nothing. Add mappings for these four actions to your own Input Mapping Context, or make
+your own actions and ignore these entirely — they carry no logic, only names.
 </Note>
 
-## What's in the Examples folder
+They line up one-to-one with the Ink Page Interactor's Blueprint functions:
 
-| Asset | Path | What it is |
+| Action | Call on the interactor | Or, without the interactor |
 |---|---|---|
-| `BP_InkwellJournalStack` | `/Inkwell/Examples/Blueprints/` | Example journal prop: an actor Blueprint carrying an Ink Page Stack, made to display the sample journal document |
-| `DA_InkwellJournal` | `/Inkwell/Examples/` | Multi-page example Ink Page Document |
-| `WBP_InkwellReadPrompt` | `/Inkwell/Examples/UI/` | Example "Press E to read" prompt widget driven by the interactor's focus/reading state |
-| `IA_Interact`, `IA_NextPage`, `IA_PreviousPage`, `IA_PutBack` | `/Inkwell/Examples/Input/` | Enhanced Input actions the demo binds |
+| `IA_Interact` | **Interact** | Ink Page Reader → **Begin Reading Actor** / **End Reading** |
+| `IA_NextPage` | **Next Page** | Ink Page Reader or Ink Page Display → **Next Page** |
+| `IA_PreviousPage` | **Previous Page** | Ink Page Reader or Ink Page Display → **Previous Page** |
+| `IA_PutBack` | **Stop Reading** | Ink Page Reader → **End Reading** |
 
-### BP_InkwellJournalStack
+## WBP_InkwellReadPrompt
 
-An example actor Blueprint showing the standard readable-prop recipe: an actor carrying
-an [Ink Page Stack](/plugins/inkwell/components/page-stack) component. Drag it into a level, point the
-stack's **Document** at `DA_InkwellJournal`, and (with an
-[Ink Page Interactor](/plugins/inkwell/components/interactor) on your pawn) it is immediately readable —
-the document renders as a physical pile of sheets, one sheet per page, current page on
-top.
+`/Inkwell/Examples/UI/WBP_InkwellReadPrompt` — a Widget Blueprint with a canvas holding two
+text blocks, `Crosshair` and `PromptText`, and two variables, `Interactor` and `Reader`.
 
-It's also a live playground for the stack's look: select the placed actor and drag the
-stack's properties (sheet size, gap, fan angle, splay, interp speed) — the pile updates
-in the editor viewport as you edit, no PIE required.
+How it works: it caches the pawn's two Inkwell components into the `Interactor` and `Reader`
+variables (**Get Owning Player Pawn** → **Get Component by Class**, whose return pin is
+already typed from the Component Class pick, so no cast is needed), then on **Tick**
+branches on the reader's **Is Reading**:
 
-### DA_InkwellJournal
+- **Reading** → the prompt reads
+  `Left / Right : Turn page      E : Put back      Page N / M`, where N and M come from the
+  reader's **Get Current Page** → **Get Current Page Index** (plus one) and **Get Page
+  Count**. The crosshair's render opacity is set from the same branch.
+- **Not reading** → if the interactor's **Get Focused Page** is valid the prompt reads
+  `E : Read`; otherwise it is collapsed.
 
-A multi-page example [Ink Page Document](/plugins/inkwell/authoring/documents). Double-click it to open
-the [Page Editor](/plugins/inkwell/authoring/page-editor) and see how a finished document is put together
-— styled runs, page layout, multiple pages. It's the document made for
-`BP_InkwellJournalStack`.
+Add it to the viewport from your player Blueprint (**Create Widget** → **Add to Viewport**)
+and it works with no other setup, provided the pawn carries both components.
 
-### WBP_InkwellReadPrompt
+<Warning>
+This widget is written the short way, on Tick, and its key names are hard-coded into the
+prompt strings to match the interactor's demo bindings (**E**, Left / Right). It is a demonstration, not a
+production HUD. In a real project, bind the interactor's **On Focus Changed** and the
+reader's **On Reading Started** / **On Reading Ended** events instead of polling, and get
+the key names from your own input system.
+</Warning>
 
-An example UMG prompt widget implementing the standard "Press E to read" flow: on Tick it
-finds the owning pawn's Ink Page Interactor and Ink Page Reader and polls
-**Get Focused Page** / **Is Reading**, showing the read prompt when a page is under the
-crosshair and hiding it while reading. An equivalent event-driven wiring — binding
-**On Focus Changed** and **On Reading Started** / **On Reading Ended** instead of ticking
-— is described step by step in
-[Suppressing prompts and reacting to reading](/plugins/inkwell/guides/integration#suppressing-prompts-and-reacting-to-reading).
+## What to copy, and what to leave
 
-### The Enhanced Input actions
-
-Four ready-made Input Action assets, matching the interactor's four BlueprintCallable
-entry points:
-
-| Action asset | Maps naturally to |
+| Asset | Copy it into your project? |
 |---|---|
-| `IA_Interact` | **Interact** — open the focused page / close the one being read |
-| `IA_NextPage` | **Next Page** |
-| `IA_PreviousPage` | **Previous Page** |
-| `IA_PutBack` | **Stop Reading** — put the page being read back down |
+| `BP_InkwellJournalStack` | **Copy the pattern, not the asset.** It is two clicks to rebuild: an actor, an Ink Page Stack, a document. Copy the asset only if you want a prop to hack on. |
+| `DA_InkwellSample`, `DA_InkwellJournal` | **Reference or copy freely.** Both are ordinary Ink Page Documents. Copy one into `/Game` and edit it as a starting template; the five bundled fonts they use are open-licensed and ship with the plugin. |
+| `IA_*` input actions | **Fine to reference directly**, or copy into `/Game` if you would rather own them. They contain no logic. |
+| `WBP_InkwellReadPrompt` | **Demo only.** Read it, do not ship it. See the warning above. |
 
-Add key mappings for them to your project's Input Mapping Context and call the interactor
-functions from their Enhanced Input events in your pawn — the full recipe is in
-[Wiring "press E to read" with Enhanced Input](/plugins/inkwell/guides/integration#wiring-press-e-to-read-with-enhanced-input).
-
-## Other content shipped with the plugin
-
-Beyond the Examples folder, the plugin content includes:
-
-| Path | Contents |
-|---|---|
-| `/Inkwell/Demo/DA_InkwellSample` | A sample Ink Page Document |
-| `/Inkwell/Fonts/...` | Five open-licensed font families — see [Fonts](/plugins/inkwell/authoring/fonts) |
-| `/Inkwell/Materials/` | `M_PageInk` (the page ink material), `MI_PageInk`, `M_PageComposite_Preview` |
-| `/Inkwell/Meshes/SM_PageSheet` | The page sheet mesh — a 100 cm plane with clean 0–1 UVs |
-| `/Inkwell/Textures/` | `T_PaperPlain`, `T_InkNone` |
+<Tip>
+Copy anything you intend to modify into `/Game` first (right-click → **Duplicate**, or drag
+into a project folder). Assets in the plugin's own Content folder are replaced when you
+update Inkwell, and any edits you made to them go with the old version.
+</Tip>
 
 ## The demo project
 
-A complete demo *project* lives separately on GitHub:
-[github.com/tyguymedia/Inkwell](https://github.com/tyguymedia/Inkwell). It keeps the
-FirstPerson template map, and its first-person character demonstrates the recommended
-production input setup:
+A complete demo *project* — the plugin plus a working first-person setup — lives separately
+at [github.com/tyguymedia/Inkwell](https://github.com/tyguymedia/Inkwell). It is not part of
+the Fab download; clone it if you want to see the whole wiring in one place rather than
+build it.
 
-- An **Ink Page Interactor** on the character with **Enable Default Input** turned
-  **off** (so the hard-coded demo keys — E, Q, arrows, mouse wheel — are not used),
-- the example Enhanced Input actions (`IA_Interact`, `IA_NextPage`, `IA_PreviousPage`,
-  `IA_PutBack`) bound to the interactor's functions in the character Blueprint, and
-- key mappings for those four actions added to the project's `IMC_Default` Input Mapping
-  Context, alongside the template's own move/look mappings.
+What it adds on top of the plugin:
 
-If you plan to wire Inkwell into your own Enhanced Input setup, copy that pattern — it is
-exactly the integration path documented in the
-[integration guide](/plugins/inkwell/guides/integration#wiring-press-e-to-read-with-enhanced-input).
+- **A level** (`Lvl_FirstPerson`, the FirstPerson template map) with an **Ink Page** actor
+  showing `DA_InkwellSample` lying on a surface, and a `BP_InkwellJournalStack` placed
+  nearby — the two screenshots on this page.
+- **A first-person character** carrying an Ink Page Interactor (`PageInteractor`) and an
+  Ink Page Reader, with **Enable Default Input** turned off, binding the four example input
+  actions to the interactor's functions through Enhanced Input events, and creating
+  `WBP_InkwellReadPrompt` on screen.
+- **`IMC_Default`** with key mappings added for `IA_Interact`, `IA_NextPage`,
+  `IA_PreviousPage`, and `IA_PutBack`, alongside the template's own move and look mappings.
 
-<Tip>
-For a from-scratch walkthrough (install → author → place → read), start with the
-[Quickstart](/plugins/inkwell/quickstart) instead — the examples here are most useful as reference
-implementations to open next to your own Blueprints.
-</Tip>
+That character is the interactor-based path spelled out end to end. If your project already
+has its own interaction system, the path you want instead is
+[Integrating with your interaction system](/plugins/inkwell/guides/integration), which skips the interactor
+entirely.
+
+## Next
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/plugins/inkwell/quickstart">
+    Install, author a document, place it, read it — from scratch, in order.
+  </Card>
+  <Card title="Ink Page Stack" icon="layer-group" href="/plugins/inkwell/components/page-stack">
+    Everything the journal prop is doing, property by property.
+  </Card>
+  <Card title="Integration" icon="plug" href="/plugins/inkwell/guides/integration">
+    Wire pages into the interaction system your project already has.
+  </Card>
+</CardGroup>
