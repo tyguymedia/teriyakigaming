@@ -45,13 +45,17 @@ Screenshots are **generated, not hand-taken** — `Tools/DocShots/shoot_all.ps1`
 repo drives the editor and positions the numbered callouts from real widget geometry. After a
 UI change, re-run it; never re-shoot by hand.
 
-## Open issue for the owner
+## Engine versions — decided, not yet done
 
-`installation.mdx` and `reference/faq.mdx` state **UE 5.7**, matching the demo `.uproject`
-and build artifacts. The Inkwell repo's `README.md` says "5.4 – 5.7" and `Inkwell.uplugin`
-declares no `EngineVersion`. Nothing corroborates the 5.4 end. Reconcile README, `.uplugin`
-and the Fab listing by hand, then make the docs match — telling a 5.4 buyer they are
-supported is a refund.
+The docs currently state **UE 5.7** (`installation.mdx`, `reference/faq.mdx`), matching the
+demo `.uproject` and build artifacts, while the Inkwell repo README says "5.4 – 5.7" and
+`Inkwell.uplugin` declares no `EngineVersion`.
+
+**The owner decided (2026-08-21) to migrate the plugin to genuinely support that 5.4–5.7
+range, and to handle it later.** So the README is the intended future state and the docs are
+the current one. Do not "fix" this by narrowing anything to 5.7 — leave the discrepancy
+alone until the migration lands, then update installation.mdx and reference/faq.mdx in the
+**Inkwell repo source** (`Docs/mintlify/`) and re-import.
 
 ## Gotcha
 
